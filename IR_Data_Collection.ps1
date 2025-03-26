@@ -18,9 +18,22 @@
 
 #Script Configuration
 param(
-    [string]$OutputPath = "$PWD\DFIR_Report_$($env:COMPUTERNAME)_$(Get-Date -Format 'yyyy-MM-dd-HH-mm').html",
-    [switch]$OpenReport = $true
+    [string]$OutputPath = "C:\Investigation\DFIR_Report_$($env:COMPUTERNAME)_$(Get-Date -Format 'yyyy-MM-dd-HH-mm').html",
+    [switch]$OpenReport = $false
 )
+
+# Create output directory if it doesn't exist
+$outputDir = Split-Path -Path $OutputPath -Parent
+if (-not (Test-Path -Path $outputDir)) {
+    try {
+        New-Item -Path $outputDir -ItemType Directory -Force | Out-Null
+        Write-Host "Created output directory: $outputDir" -ForegroundColor Green
+    } catch {
+        Write-Host "Error creating output directory: $_" -ForegroundColor Red
+        $OutputPath = "$PWD\DFIR_Report_$($env:COMPUTERNAME)_$(Get-Date -Format 'yyyy-MM-dd-HH-mm').html"
+        Write-Host "Falling back to current directory: $OutputPath" -ForegroundColor Yellow
+    }
+}
 
 # Error handling settings
 $ErrorActionPreference = "Continue"
@@ -47,6 +60,30 @@ function Write-DFIRLog {
     }
     
     "$timestamp [$Level] $Message" | Out-File -FilePath $logFile -Append
+}
+
+function Format-DataSize {
+    param (
+        [Parameter(Mandatory=$true)]
+        [double]$Bytes,
+        [int]$Precision = 2
+    )
+    
+    if ($Bytes -lt 1KB) {
+        return "$Bytes B"
+    }
+    elseif ($Bytes -lt 1MB) {
+        return "$([math]::Round($Bytes/1KB, $Precision)) KB"
+    }
+    elseif ($Bytes -lt 1GB) {
+        return "$([math]::Round($Bytes/1MB, $Precision)) MB"
+    }
+    elseif ($Bytes -lt 1TB) {
+        return "$([math]::Round($Bytes/1GB, $Precision)) GB"
+    }
+    else {
+        return "$([math]::Round($Bytes/1TB, $Precision)) TB"
+    }
 }
 #endregion
 
@@ -569,221 +606,252 @@ function Get-BrowserHistory {
         Edge = @()
     }
     
-    # Binary parser for SQLite databases without requiring SQLite installation
-    function Read-SqliteDB {
+    # Install SQLite module if not present
+    if (-not (Get-Module -ListAvailable -Name PSSQLite)) {
+        Write-DFIRLog "Installing PSSQLite module..." "Info"
+        try {
+            # Ensure the PSGallery repository is trusted to avoid installation prompts
+            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue
+
+            # Check if NuGet provider is installed
+            if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) {
+                Write-DFIRLog "Installing NuGet provider..." "Info"
+                Install-PackageProvider -Name NuGet -Force -Scope CurrentUser -Confirm:$false | Out-Null
+            }
+        
+            # Install PSSQLite module automatically without prompts
+            Install-Module -Name PSSQLite -Force -AllowClobber -Scope CurrentUser -Confirm:$false | Out-Null
+            Import-Module PSSQLite -Force
+            Write-DFIRLog "PSSQLite module installed successfully" "Info"
+        } catch {
+            Write-DFIRLog "Error installing PSSQLite module: $_" "Warning"
+            # Create fallback SQLite access method
+            Write-DFIRLog "Using fallback method for SQLite access" "Info"
+        }
+    } else {
+        Write-DFIRLog "PSSQLite module already installed" "Info"
+        Import-Module PSSQLite -Force
+    }
+
+    # Function to convert WebKit timestamp to DateTime
+    function ConvertFrom-WebKitTimestamp {
         param (
             [Parameter(Mandatory = $true)]
-            [string]$DatabasePath
+            [Int64]$WebkitTimestamp
+        )
+        
+        # Webkit timestamps are microseconds since Jan 1, 1601 UTC
+        # Convert to DateTime
+        try {
+            if ($WebkitTimestamp -eq 0) {
+                return $null
+            }
+            
+            # Convert to DateTime (WebKit timestamp is microseconds since Jan 1, 1601)
+            $epochAdjust = New-Object DateTime(1601, 1, 1, 0, 0, 0, [DateTimeKind]::Utc)
+            $epochAdjust.AddMilliseconds($WebkitTimestamp / 1000)
+        } catch {
+            # Return current date if conversion fails
+            Get-Date
+        }
+    }
+    
+    # Function to create a temporary copy of a database file
+    function Get-TemporaryDatabaseCopy {
+        param (
+            [Parameter(Mandatory = $true)]
+            [string]$SourcePath
         )
         
         try {
-            # Create a temporary copy of the database file to avoid file locking issues
-            $tempDbPath = "$env:TEMP\dfir_temp_history_$(Get-Random).db"
-            if (Test-Path -Path $DatabasePath) {
-                Copy-Item -Path $DatabasePath -Destination $tempDbPath -Force -ErrorAction SilentlyContinue
+            # Create a temporary file path
+            $tempDbPath = "$env:TEMP\dfir_temp_db_$(Get-Random).db"
+            
+            if (Test-Path -Path $SourcePath) {
+                # Try to copy the file (it may be locked by the browser)
+                Copy-Item -Path $SourcePath -Destination $tempDbPath -Force -ErrorAction Stop
+                return $tempDbPath
             } else {
-                Write-DFIRLog "Database file not found: $DatabasePath" "Warning"
-                return @()
+                Write-DFIRLog "Database file not found: $SourcePath" "Warning"
+                return $null
+            }
+        } catch {
+            Write-DFIRLog "Error creating temporary database copy: $_" "Warning"
+            return $null
+        }
+    }
+    
+    # Function to query browser history with PSSQLite
+    function Get-SQLiteBrowserHistory {
+        param (
+            [Parameter(Mandatory = $true)]
+            [string]$DatabasePath,
+            
+            [Parameter(Mandatory = $false)]
+            [int]$MaxEntries = 1000
+        )
+        
+        $results = @()
+        
+        try {
+            # Create a temporary copy of the database
+            $tempDbPath = Get-TemporaryDatabaseCopy -SourcePath $DatabasePath
+            
+            if ($null -eq $tempDbPath) {
+                return $results
             }
             
-            # Simple binary parsing for SQLite URL history
-            # This is a simplified parser and may not work for all database structures
-            $results = @()
-            
-            try {
-                # Read database file as bytes
-                $bytes = [System.IO.File]::ReadAllBytes($tempDbPath)
+            # Use PSSQLite to query the history database
+            if (Get-Module -Name PSSQLite -ErrorAction SilentlyContinue) {
+                # SQL query for Chrome and Edge history
+                $query = @"
+                SELECT 
+                    urls.url as URL,
+                    urls.title as Title,
+                    urls.visit_count as VisitCount,
+                    MAX(visits.visit_time) as LastVisitTime
+                FROM urls
+                LEFT JOIN visits ON urls.id = visits.url
+                GROUP BY urls.url
+                ORDER BY LastVisitTime DESC
+                LIMIT $MaxEntries;
+"@
                 
-                # Look for URL patterns in the byte array
-                $encoding = [System.Text.Encoding]::UTF8
-                $content = $encoding.GetString($bytes)
-                
-                # Extract URLs using regex patterns
-                # For Chrome/Edge we're looking for http/https URLs in the binary content
-                $urlMatches = [regex]::Matches($content, "(https?://)[a-zA-Z0-9\-.]+\.[a-zA-Z]{2,3}(/\S*)?")
-                
-                # Extract potential titles with various patterns to improve success rate
-                $titleMatches = @()
-                $titleMatches += [regex]::Matches($content, "(?<=\x00\x00\x00)[a-zA-Z0-9\s\-_\.\,\:\(\)""&"";\!\?\'""]{5,100}(?=\x00)")
-                $titleMatches += [regex]::Matches($content, "(?<=title\x00)[a-zA-Z0-9\s\-_\.\,\:\(\)""&"";\!\?\'""]{5,100}(?=\x00)")
-                $titleMatches += [regex]::Matches($content, "(?<=Title\x00)[a-zA-Z0-9\s\-_\.\,\:\(\)""&"";\!\?\'""]{5,100}(?=\x00)")
-                
-                # Filter valid titles (remove garbage strings)
-                $validTitles = $titleMatches | ForEach-Object { $_.Value } | 
-                              Where-Object { $_ -match "[a-zA-Z]{3,}" } | 
-                              Select-Object -Unique
-                
-                # Create timestamp approximations
-                # Note: Real timestamp extraction would require proper SQLite parsing
-                $currentTime = Get-Date
-                
-                # Create result objects with URL and approximated data
-                $urlList = $urlMatches | ForEach-Object { $_.Value } | Select-Object -Unique | 
-                           Where-Object { -not [string]::IsNullOrEmpty($_) }
-                
-                # Create common website titles mapping
-                $commonSites = @{
-                    "google.com" = "Google Search"
-                    "bing.com" = "Bing Search"
-                    "youtube.com" = "YouTube"
-                    "facebook.com" = "Facebook"
-                    "twitter.com" = "Twitter"
-                    "x.com" = "Twitter (X)"
-                    "linkedin.com" = "LinkedIn"
-                    "instagram.com" = "Instagram"
-                    "reddit.com" = "Reddit"
-                    "amazon.com" = "Amazon"
-                    "walmart.com" = "Walmart"
-                    "github.com" = "GitHub"
-                    "stackoverflow.com" = "Stack Overflow"
-                    "microsoft.com" = "Microsoft"
-                    "apple.com" = "Apple"
-                    "netflix.com" = "Netflix"
-                    "hulu.com" = "Hulu"
-                    "wikipedia.org" = "Wikipedia"
-                    "live.com" = "Microsoft Live"
-                    "outlook.com" = "Microsoft Outlook"
-                    "gmail.com" = "Gmail"
-                    "yahoo.com" = "Yahoo"
-                    "ebay.com" = "eBay"
-                    "nytimes.com" = "New York Times"
-                    "cnn.com" = "CNN"
-                    "bbc.com" = "BBC"
-                    "weather.com" = "Weather Channel"
-                    "etsy.com" = "Etsy"
-                    "pinterest.com" = "Pinterest"
-                    "twitch.tv" = "Twitch"
-                }
-
-                # Title generation function - extracts title from URL if no title found
-                function Get-TitleFromUrl {
-                    param (
-                        [string]$Url,
-                        [hashtable]$KnownSites = $commonSites
-                    )
-                    
-                    # Remove protocol and query parameters
-                    $titleCandidate = $Url -replace "https?://", ""
-                    $titleCandidate = $titleCandidate -replace "\?.*$", ""
-                    
-                    # Check for known websites first
-                    foreach ($site in $KnownSites.Keys) {
-                        if ($titleCandidate -match "^(?:www\.)?$site") {
-                            # Check for subdomains
-                            if ($titleCandidate -match "^([a-z0-9-]+)\.(?:www\.)?$site") {
-                                $subdomain = $matches[1]
-                                # Clean up subdomain name
-                                $subdomainName = $subdomain -replace "[-_]", " "
-                                $subdomainName = (Get-Culture).TextInfo.ToTitleCase($subdomainName)
-                                return "$subdomainName - $($KnownSites[$site])"
-                            }
-                            
-                            # Check if there's a specific page
-                            if ($titleCandidate -match "$site/([^/]+)") {
-                                $pageName = $matches[1]
-                                # Clean up page name
-                                $pageName = $pageName -replace "[-_]", " "
-                                $pageName = (Get-Culture).TextInfo.ToTitleCase($pageName)
-                                return "$pageName - $($KnownSites[$site])"
-                            }
-                            
-                            return $KnownSites[$site]
-                        }
-                    }
-                    
-                    # Get domain portion (before first slash)
-                    if ($titleCandidate -match "^([^/]+)") {
-                        $domain = $matches[1]
-                        
-                        # Remove www prefix if present
-                        $domain = $domain -replace "^www\.", ""
-                        
-                        # Get path portion (after domain)
-                        $path = $titleCandidate -replace "^[^/]+/?", ""
-                        $path = $path -replace "/$", ""
-                        
-                        # Extract meaningful words from path if present
-                        if ($path) {
-                            $pathWords = $path -split "/" | Where-Object { $_ -and $_ -notmatch "^[0-9]+$" }
-                            $pathTitle = if ($pathWords) {
-                                $pathWords = $pathWords | ForEach-Object { 
-                                    $word = $_ -replace "[-_\.]", " "
-                                    $word = $word -replace "\.html$|\.php$|\.aspx$", ""
-                                    $word
-                                }
-                                ($pathWords | Select-Object -First 3) -join " - "
-                            } else { "" }
-                            
-                            $pageTitle = if ($pathTitle) {
-                                "$((Get-Culture).TextInfo.ToTitleCase($pathTitle)) - $domain"
-                            } else {
-                                $domain
-                            }
-                            
-                            # Capitalize first letter of each word
-                            return (Get-Culture).TextInfo.ToTitleCase($pageTitle.ToLower())
-                        } else {
-                            # Just domain if no meaningful path
-                            $domainParts = $domain -split "\."
-                            $domainName = $domainParts[0]
-                            $domainSuffix = $domainParts[-2] + "." + $domainParts[-1]
-                            
-                            $domainTitle = $domainName -replace "[-_]", " "
-                            $domainTitle = (Get-Culture).TextInfo.ToTitleCase($domainTitle)
-                            
-                            if ($domainTitle -eq $domain) {
-                                return "$domainTitle Website"
-                            } else {
-                                return "$domainTitle Website" 
-                            }
-                        }
+                # Query the database
+                $results = Invoke-SqliteQuery -DataSource $tempDbPath -Query $query -ErrorAction Stop | ForEach-Object {
+                    # Convert WebKit timestamp to DateTime
+                    $lastVisitTime = if ($_.LastVisitTime) {
+                        ConvertFrom-WebKitTimestamp -WebkitTimestamp $_.LastVisitTime
                     } else {
-                        return "Web Page"
+                        Get-Date
+                    }
+                    
+                    # Create custom object
+                    [PSCustomObject]@{
+                        URL = $_.URL
+                        Title = if ([string]::IsNullOrEmpty($_.Title)) { "No Title" } else { $_.Title }
+                        VisitCount = $_.VisitCount
+                        LastVisit = $lastVisitTime.ToString("yyyy-MM-dd HH:mm:ss")
+                    }
+                }
+            } else {
+                # Fallback method using .NET SQLite
+                # This section uses .NET's System.Data.SQLite to access the database
+                Write-DFIRLog "Using .NET SQLite for direct database access" "Info"
+                
+                # Use .NET SQLite method
+                Add-Type -Path "$PSScriptRoot\System.Data.SQLite.dll" -ErrorAction SilentlyContinue
+                
+                if (-not ([System.AppDomain]::CurrentDomain.GetAssemblies() | Where-Object Location -Like "*System.Data.SQLite.dll")) {
+                    # Download SQLite DLL if not present
+                    $sqliteDllPath = "$env:TEMP\System.Data.SQLite.dll"
+                    
+                    if (-not (Test-Path $sqliteDllPath)) {
+                        # URL for SQLite DLL
+                        $sqliteDllUrl = "https://github.com/aspnet/Microsoft.Data.Sqlite/raw/main/src/libs/sqlite/x64/sqlite3.dll"
+                        
+                        try {
+                            Invoke-WebRequest -Uri $sqliteDllUrl -OutFile $sqliteDllPath -ErrorAction Stop
+                            Write-DFIRLog "Downloaded SQLite DLL" "Info"
+                        } catch {
+                            Write-DFIRLog "Failed to download SQLite DLL: $_" "Warning"
+                            # Clean up the temporary copy
+                            if (Test-Path -Path $tempDbPath) {
+                                Remove-Item -Path $tempDbPath -Force -ErrorAction SilentlyContinue
+                            }
+                            return $results
+                        }
+                    }
+                    
+                    try {
+                        Add-Type -Path $sqliteDllPath -ErrorAction Stop
+                    } catch {
+                        Write-DFIRLog "Failed to load SQLite DLL: $_" "Warning"
+                        # Clean up the temporary copy
+                        if (Test-Path -Path $tempDbPath) {
+                            Remove-Item -Path $tempDbPath -Force -ErrorAction SilentlyContinue
+                        }
+                        return $results
                     }
                 }
                 
-                # Sort title matches by relevance (length is often a good indicator)
-                $validTitles = $validTitles | Sort-Object Length -Descending
-                
-                $visitDate = $currentTime.AddDays(-7)  # Start from approximately a week ago
-                $i = 0
-                
-                foreach ($url in $urlList) {
-                    # Get a title for this URL
-                    $title = Get-TitleFromUrl -Url $url
+                # Use SQLite connection
+                try {
+                    $connectionString = "Data Source=$tempDbPath;Version=3;Read Only=True;"
+                    $connection = New-Object System.Data.SQLite.SQLiteConnection($connectionString)
+                    $connection.Open()
                     
-                    # Create a result object
+                    $command = $connection.CreateCommand()
+                    $command.CommandText = @"
+                    SELECT 
+                        urls.url as URL,
+                        urls.title as Title,
+                        urls.visit_count as VisitCount,
+                        MAX(visits.visit_time) as LastVisitTime
+                    FROM urls
+                    LEFT JOIN visits ON urls.id = visits.url
+                    GROUP BY urls.url
+                    ORDER BY LastVisitTime DESC
+                    LIMIT $MaxEntries;
+"@
+                    
+                    $reader = $command.ExecuteReader()
+                    $dataTable = New-Object System.Data.DataTable
+                    $dataTable.Load($reader)
+                    
+                    foreach ($row in $dataTable.Rows) {
+                        # Convert WebKit timestamp to DateTime
+                        $lastVisitTime = if ($row["LastVisitTime"]) {
+                            ConvertFrom-WebKitTimestamp -WebkitTimestamp ([Int64]$row["LastVisitTime"])
+                        } else {
+                            Get-Date
+                        }
+                        
+                        $results += [PSCustomObject]@{
+                            URL = $row["URL"]
+                            Title = if ([string]::IsNullOrEmpty($row["Title"])) { "No Title" } else { $row["Title"] }
+                            VisitCount = $row["VisitCount"]
+                            LastVisit = $lastVisitTime.ToString("yyyy-MM-dd HH:mm:ss")
+                        }
+                    }
+                    
+                    # Close the connection
+                    $connection.Close()
+                } catch {
+                    Write-DFIRLog "Error using .NET SQLite: $_" "Warning"
+                    
+                    # Fallback to Windows system tools for SQL access
+                    Write-DFIRLog "Attempting fallback to system tools for database access" "Info"
+                    
+                    # Use alternative history capture (timestamp metadata)
+                    $dbInfo = Get-Item $DatabasePath
                     $results += [PSCustomObject]@{
-                        URL = $url
-                        Title = $title
-                        VisitCount = Get-Random -Minimum 1 -Maximum 10
-                        LastVisit = $visitDate.AddHours(($i * 2) % 24).ToString("yyyy-MM-dd HH:mm:ss")
+                        URL = "chrome://history or edge://history"
+                        Title = "Browser History (Access via browser interface)" 
+                        VisitCount = 1
+                        LastVisit = $dbInfo.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss")
                     }
-                    
-                    $i++
                 }
-            } catch {
-                Write-DFIRLog "Error parsing browser history: $_" "Warning"
             }
             
-            # Remove temporary file
+            # Clean up the temporary copy
             if (Test-Path -Path $tempDbPath) {
                 Remove-Item -Path $tempDbPath -Force -ErrorAction SilentlyContinue
             }
             
-            return $results
         } catch {
-            Write-DFIRLog "Error accessing browser database: $_" "Warning"
-            return @()
+            Write-DFIRLog "Error querying browser history: $_" "Warning"
         }
+        
+        return $results
     }
     
-    # Collect Chrome history
+    # For Chrome browser - get browser history from SQLite database
     $chromeHistoryPath = "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\History"
     try {
         if (Test-Path -Path $chromeHistoryPath) {
-            Write-DFIRLog "Parsing Chrome history..."
-            $browserHistory.Chrome = Read-SqliteDB -DatabasePath $chromeHistoryPath
+            Write-DFIRLog "Extracting Chrome history..." "Info"
+            $browserHistory.Chrome = Get-SQLiteBrowserHistory -DatabasePath $chromeHistoryPath
             Write-DFIRLog "Found $($browserHistory.Chrome.Count) Chrome history entries" "Info"
         } else {
             Write-DFIRLog "Chrome history database not found" "Warning"
@@ -792,12 +860,12 @@ function Get-BrowserHistory {
         Write-DFIRLog "Error collecting Chrome history: $_" "Warning"
     }
     
-    # Collect Edge history
+    # For Edge browser - get browser history from SQLite database
     $edgeHistoryPath = "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\History"
     try {
         if (Test-Path -Path $edgeHistoryPath) {
-            Write-DFIRLog "Parsing Edge history..."
-            $browserHistory.Edge = Read-SqliteDB -DatabasePath $edgeHistoryPath
+            Write-DFIRLog "Extracting Edge history..." "Info"
+            $browserHistory.Edge = Get-SQLiteBrowserHistory -DatabasePath $edgeHistoryPath
             Write-DFIRLog "Found $($browserHistory.Edge.Count) Edge history entries" "Info"
         } else {
             Write-DFIRLog "Edge history database not found" "Warning"
