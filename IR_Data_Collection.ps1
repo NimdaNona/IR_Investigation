@@ -39,6 +39,115 @@ if (-not (Test-Path -Path $outputDir)) {
 $ErrorActionPreference = "Continue"
 $ProgressPreference = "SilentlyContinue"  # Hide progress bars for faster execution
 
+# Function to get the primary user profile path
+function Get-PrimaryUserProfile {
+    Write-Host "Identifying primary user profile..." -ForegroundColor Green
+    
+    # Initial default to current user profile
+    $primaryUserProfile = $env:USERPROFILE
+    $primaryUserName = $env:USERNAME
+    
+    # Get active user sessions
+    $activeUsers = @()
+    try {
+        $activeUsers = quser 2>$null | ForEach-Object {
+            $line = $_.Trim() -replace '\s+', ' '
+            if ($line -notmatch "USERNAME") {
+                $parts = $line.Split(' ')
+                
+                # Parse the quser output depending on the format
+                $username = $parts[0]
+                $state = if ($parts[1] -eq '>') { $parts[3] } else { $parts[2] }
+                $idleTime = if ($parts[1] -eq '>') { $parts[4] } else { $parts[3] }
+                
+                [PSCustomObject]@{
+                    Username = $username
+                    State = $state
+                    IdleTime = $idleTime
+                    Active = ($state -eq "Active")
+                }
+            }
+        }
+    } 
+    catch {
+        Write-Host "Error detecting active users: $_" -ForegroundColor Yellow
+    }
+    
+    # Check if we found any active users
+    $activeUserCount = ($activeUsers | Measure-Object).Count
+    
+    if ($activeUserCount -gt 0) {
+        # First, look for users in "Active" state
+        $activeUser = $activeUsers | Where-Object { $_.Active -eq $true } | Select-Object -First 1
+        
+        if ($activeUser) {
+            $primaryUserName = $activeUser.Username
+            Write-Host "Found active user: $primaryUserName" -ForegroundColor Green
+        } 
+        else {
+            # If no active users, take the first logged-in user
+            $primaryUserName = $activeUsers[0].Username
+            Write-Host "No active users found. Using first logged-in user: $primaryUserName" -ForegroundColor Yellow
+        }
+        
+        # Get user profile path
+        $primaryUserProfile = "C:\Users\$primaryUserName"
+    } 
+    else {
+        # If no active sessions, get most recently used profile from registry
+        try {
+            $profileList = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\*" | 
+                           Where-Object { $_.ProfileImagePath -like "C:\Users\*" -and $_.ProfileImagePath -notlike "*systemprofile*" -and $_.ProfileImagePath -notlike "*LocalService*" -and $_.ProfileImagePath -notlike "*NetworkService*" }
+            
+            # Convert LastUseTime property if exists
+            if ($profileList -and $profileList.Count -gt 0 -and $profileList[0].PSObject.Properties.Name -contains "LastUseTime") {
+                # Sort by LastUseTime if available
+                $mostRecentProfile = $profileList | Sort-Object -Property LastUseTime -Descending | Select-Object -First 1
+            } 
+            else {
+                # Otherwise, just take the first one or try sorting by ProfileLoadTimeLow if it exists
+                if ($profileList -and $profileList.Count -gt 0 -and $profileList[0].PSObject.Properties.Name -contains "ProfileLoadTimeLow") {
+                    $mostRecentProfile = $profileList | Sort-Object -Property ProfileLoadTimeLow -Descending | Select-Object -First 1
+                } 
+                else {
+                    $mostRecentProfile = $profileList | Select-Object -First 1
+                }
+            }
+            
+            if ($mostRecentProfile) {
+                $primaryUserProfile = $mostRecentProfile.ProfileImagePath
+                $primaryUserName = Split-Path -Path $primaryUserProfile -Leaf
+                Write-Host "No active users found. Using most recent profile: $primaryUserProfile" -ForegroundColor Yellow
+            }
+        } 
+        catch {
+            Write-Host "Error detecting user profiles from registry: $_" -ForegroundColor Yellow
+            Write-Host "Fallback to default profile path: $primaryUserProfile" -ForegroundColor Yellow
+        }
+    }
+    
+    # Return both the profile path and the username
+    return @{
+        ProfilePath = $primaryUserProfile
+        Username = $primaryUserName
+    }
+}
+
+# Get the primary user info
+$primaryUserInfo = Get-PrimaryUserProfile
+$PrimaryUserProfile = $primaryUserInfo.ProfilePath
+$PrimaryUserName = $primaryUserInfo.Username
+
+# Define user-specific paths based on the primary user profile
+$PrimaryUserLocalAppData = Join-Path -Path $PrimaryUserProfile -ChildPath "AppData\Local"
+$PrimaryUserRoamingAppData = Join-Path -Path $PrimaryUserProfile -ChildPath "AppData\Roaming"
+$PrimaryUserTemp = Join-Path -Path $PrimaryUserLocalAppData -ChildPath "Temp"
+$PrimaryUserDesktop = Join-Path -Path $PrimaryUserProfile -ChildPath "Desktop"
+$PrimaryUserDocuments = Join-Path -Path $PrimaryUserProfile -ChildPath "Documents"
+$PrimaryUserDownloads = Join-Path -Path $PrimaryUserProfile -ChildPath "Downloads"
+
+Write-Host "Primary User Identified: $PrimaryUserName" -ForegroundColor Green
+Write-Host "Primary User Profile: $PrimaryUserProfile" -ForegroundColor Green
 Write-Host "Starting DFIR data collection..." -ForegroundColor Green
 
 # Create timestamp for logging
@@ -341,7 +450,7 @@ function Get-UserInformation {
     $startupPrograms = @()
     try {
         $startupFolders = @(
-            "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup",
+            "$PrimaryUserRoamingAppData\Microsoft\Windows\Start Menu\Programs\Startup",
             "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Startup"
         )
         
@@ -384,7 +493,7 @@ function Get-UserInformation {
     # Get PowerShell history
     $psHistory = @()
     try {
-        $historyPath = "$env:APPDATA\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt"
+        $historyPath = "$PrimaryUserRoamingAppData\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt"
         if (Test-Path $historyPath) {
             $psHistory = Get-Content -Path $historyPath -ErrorAction SilentlyContinue | 
                         Select-Object -Last 100 | 
@@ -520,9 +629,9 @@ function Get-FileSystemInformation {
     $suspiciousExecutables = @()
     try {
         $suspiciousLocations = @(
-            "$env:USERPROFILE\AppData\Local\Temp",
-            "$env:TEMP",
-            "$env:USERPROFILE\Downloads"
+            "$PrimaryUserLocalAppData\Temp",
+            "$PrimaryUserTemp",
+            "$PrimaryUserDownloads"
         )
         
         foreach ($location in $suspiciousLocations) {
@@ -610,18 +719,14 @@ function Get-BrowserHistory {
     if (-not (Get-Module -ListAvailable -Name PSSQLite)) {
         Write-DFIRLog "Installing PSSQLite module..." "Info"
         try {
-            # Ensure the PSGallery repository is trusted to avoid installation prompts
-            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue
-
             # Check if NuGet provider is installed
             if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) {
-                Write-DFIRLog "Installing NuGet provider..." "Info"
-                Install-PackageProvider -Name NuGet -Force -Scope CurrentUser -Confirm:$false | Out-Null
+                Install-PackageProvider -Name NuGet -Force -Scope CurrentUser | Out-Null
             }
-        
-            # Install PSSQLite module automatically without prompts
-            Install-Module -Name PSSQLite -Force -AllowClobber -Scope CurrentUser -Confirm:$false | Out-Null
-            Import-Module PSSQLite -Force
+            
+            # Install PSSQLite module
+            Install-Module -Name PSSQLite -Force -Scope CurrentUser | Out-Null
+            Import-Module PSSQLite
             Write-DFIRLog "PSSQLite module installed successfully" "Info"
         } catch {
             Write-DFIRLog "Error installing PSSQLite module: $_" "Warning"
@@ -630,9 +735,9 @@ function Get-BrowserHistory {
         }
     } else {
         Write-DFIRLog "PSSQLite module already installed" "Info"
-        Import-Module PSSQLite -Force
+        Import-Module PSSQLite
     }
-
+    
     # Function to convert WebKit timestamp to DateTime
     function ConvertFrom-WebKitTimestamp {
         param (
@@ -847,7 +952,7 @@ function Get-BrowserHistory {
     }
     
     # For Chrome browser - get browser history from SQLite database
-    $chromeHistoryPath = "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\History"
+    $chromeHistoryPath = "$PrimaryUserLocalAppData\Google\Chrome\User Data\Default\History"
     try {
         if (Test-Path -Path $chromeHistoryPath) {
             Write-DFIRLog "Extracting Chrome history..." "Info"
@@ -861,7 +966,7 @@ function Get-BrowserHistory {
     }
     
     # For Edge browser - get browser history from SQLite database
-    $edgeHistoryPath = "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\History"
+    $edgeHistoryPath = "$PrimaryUserLocalAppData\Microsoft\Edge\User Data\Default\History"
     try {
         if (Test-Path -Path $edgeHistoryPath) {
             Write-DFIRLog "Extracting Edge history..." "Info"
@@ -894,12 +999,12 @@ function Get-DirectoryListings {
     # User profile specific directories
     $userDirs = @(
         @{Name = "UserProfiles"; Path = "C:\Users"},
-        @{Name = "UserDesktop"; Path = "$env:USERPROFILE\Desktop"},
-        @{Name = "UserDocuments"; Path = "$env:USERPROFILE\Documents"},
-        @{Name = "UserDownloads"; Path = "$env:USERPROFILE\Downloads"},
-        @{Name = "UserRecent"; Path = "$env:USERPROFILE\AppData\Roaming\Microsoft\Windows\Recent"},
-        @{Name = "UserAppDataLocal"; Path = "$env:USERPROFILE\AppData\Local"},
-        @{Name = "UserAppDataRoaming"; Path = "$env:USERPROFILE\AppData\Roaming"}
+        @{Name = "UserDesktop"; Path = $PrimaryUserDesktop},
+        @{Name = "UserDocuments"; Path = $PrimaryUserDocuments},
+        @{Name = "UserDownloads"; Path = $PrimaryUserDownloads},
+        @{Name = "UserRecent"; Path = "$PrimaryUserRoamingAppData\Microsoft\Windows\Recent"},
+        @{Name = "UserAppDataLocal"; Path = $PrimaryUserLocalAppData},
+        @{Name = "UserAppDataRoaming"; Path = $PrimaryUserRoamingAppData}
     )
     
     # Combine both lists
