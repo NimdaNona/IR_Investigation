@@ -1,3 +1,4 @@
+
 <#
 .DESCRIPTION
     PowerShell script for Digital Forensics and Incident Response.
@@ -709,15 +710,12 @@ function Get-UsbDeviceInfo {
 
 function Get-BrowserHistory {
     Write-DFIRLog "Collecting browser history..." "Info"
-    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Starting browser history collection..." -ForegroundColor Cyan
     
     $browserHistory = @{
         Chrome = @()
         Edge = @()
         # Firefox will be added in version 1.1
     }
-    
-    #region Helper Functions - Chunk 1: Utility Code
     
     # Function to detect execution context (system account, administrative user, etc.)
     function Get-ExecutionContext {
@@ -727,9 +725,9 @@ function Get-BrowserHistory {
         $isSystem = $identity.User.Value -eq "S-1-5-18"  # System account SID
         
         Write-DFIRLog "Execution context: $($identity.Name) (Admin: $isAdmin, System: $isSystem)" "Info"
-        Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Execution context: $($identity.Name)" -ForegroundColor Yellow
-        Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Administrative rights: $isAdmin" -ForegroundColor Yellow
-        Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] System account: $isSystem" -ForegroundColor Yellow
+        Write-Host " Execution context: $($identity.Name)" -ForegroundColor Yellow
+        Write-Host " Administrative rights: $isAdmin" -ForegroundColor Yellow
+        Write-Host " System account: $isSystem" -ForegroundColor Yellow
         
         return @{
             IsAdministrator = $isAdmin
@@ -739,42 +737,9 @@ function Get-BrowserHistory {
         }
     }
     
-    # Function to write detailed, colorized log messages for troubleshooting
-    function Write-BrowserLog {
-        param (
-            [Parameter(Mandatory = $true)]
-            [string]$Message,
-            
-            [Parameter(Mandatory = $false)]
-            [ValidateSet("Info", "Warning", "Error", "Success", "Verbose")]
-            [string]$Level = "Info"
-        )
-        
-        # First, log to the standard DFIR log
-        Write-DFIRLog $Message $Level
-        
-        # Then provide enhanced console output with timestamps and colors
-        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-        $prefix = "[BROWSER][$timestamp]"
-        
-        # Select color based on level
-        switch ($Level) {
-            "Info"     { Write-Host "$prefix $Message" -ForegroundColor Cyan }
-            "Warning"  { Write-Host "$prefix $Message" -ForegroundColor Yellow }
-            "Error"    { Write-Host "$prefix $Message" -ForegroundColor Red }
-            "Success"  { Write-Host "$prefix $Message" -ForegroundColor Green }
-            "Verbose"  { Write-Host "$prefix $Message" -ForegroundColor Gray }
-        }
-    }
-    
-    #endregion Helper Functions
-    
     # SentinelOne compatibility - Detect execution context
     $context = Get-ExecutionContext
-    Write-BrowserLog "Starting browser history collection in context: $($context.UserName)" "Info"
-    if ($context.IsSystemAccount) {
-        Write-BrowserLog "Running in SYSTEM account context (SentinelOne) - using enhanced compatibility mode" "Info"
-    }
+    Write-Host "Starting browser history collection in context: $($context.UserName)" "Info"
     
     # Enhanced SQLite module installation and verification function
     function Install-SqliteModule {
@@ -784,8 +749,7 @@ function Get-BrowserHistory {
             [int]$RetryDelaySeconds = 2
         )
         
-        Write-BrowserLog "Starting enhanced PSSQLite module installation process..." "Info"
-        Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Starting PSSQLite module installation and verification" -ForegroundColor Cyan
+        Write-Host " Starting PSSQLite module installation and verification" -ForegroundColor Cyan
         
         # Check if module is already available
         $moduleInstalled = $false
@@ -794,13 +758,12 @@ function Get-BrowserHistory {
         $retryCount = 0
         $installScope = if ($context.IsSystemAccount) { "AllUsers" } else { "CurrentUser" }
         
-        Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Checking if PSSQLite module is already installed..." -ForegroundColor Cyan
+        Write-Host " Checking if PSSQLite module is already installed..." -ForegroundColor Cyan
         
         # Check if module is installed
         if (Get-Module -ListAvailable -Name PSSQLite) {
             $moduleInstalled = $true
-            Write-BrowserLog "PSSQLite module is already installed" "Info"
-            Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: PSSQLite module is already installed" -ForegroundColor Green
+            Write-Host " PSSQLite module is already installed" -ForegroundColor Green
         }
         
         # Installation and verification loop
@@ -808,36 +771,33 @@ function Get-BrowserHistory {
             try {
                 # If not installed, install the module
                 if (-not $moduleInstalled) {
-                    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Installing PSSQLite module (Attempt $($retryCount + 1) of $MaxRetries)" -ForegroundColor Cyan
-                    Write-BrowserLog "Installing PSSQLite module (Attempt $($retryCount + 1) of $MaxRetries)" "Info"
+                    Write-Host " Installing PSSQLite module (Attempt $($retryCount + 1) of $MaxRetries)" -ForegroundColor Cyan
                     
                     # Install NuGet provider if needed
                     if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) {
-                        Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Installing NuGet package provider..." -ForegroundColor Cyan
+                        Write-Host " Installing NuGet package provider..." -ForegroundColor Cyan
                         Install-PackageProvider -Name NuGet -Force -Scope $installScope | Out-Null
-                        Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: NuGet package provider installed successfully" -ForegroundColor Green
+                        Write-Host " NuGet package provider installed successfully" -ForegroundColor Green
                     }
                     
                     # Install module with progress reporting
-                    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Installing PSSQLite module with scope $installScope..." -ForegroundColor Cyan
+                    Write-Host " Installing PSSQLite module with scope $installScope..." -ForegroundColor Cyan
                     Install-Module -Name PSSQLite -Force -Scope $installScope -ErrorAction Stop | Out-Null
                     $moduleInstalled = $true
-                    Write-BrowserLog "PSSQLite module installation completed" "Success"
-                    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: PSSQLite module installation completed" -ForegroundColor Green
+                    Write-Host " PSSQLite module installation completed" -ForegroundColor Green
                 }
                 
                 # Try to import the module
                 if (-not $moduleImported) {
-                    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Importing PSSQLite module..." -ForegroundColor Cyan
+                    Write-Host " Importing PSSQLite module..." -ForegroundColor Cyan
                     Import-Module PSSQLite -Force -ErrorAction Stop
                     $moduleImported = $true
-                    Write-BrowserLog "PSSQLite module imported successfully" "Success"
-                    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: PSSQLite module imported successfully" -ForegroundColor Green
+                    Write-Host " PSSQLite module imported successfully" -ForegroundColor Green
                 }
                 
                 # Verify module functionality by testing a command
                 if ($moduleImported) {
-                    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Verifying PSSQLite module functionality..." -ForegroundColor Cyan
+                    Write-Host " Verifying PSSQLite module functionality..." -ForegroundColor Cyan
                     
                     # Check if required commands are available
                     $requiredCommands = @('Invoke-SqliteQuery', 'New-SqliteConnection')
@@ -850,23 +810,21 @@ function Get-BrowserHistory {
                     }
                     
                     if ($missingCommands.Count -gt 0) {
-                        Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Missing required commands: $($missingCommands -join ', ')" -ForegroundColor Yellow
+                        Write-Host " Missing required commands: $($missingCommands -join ', ')" -ForegroundColor Yellow
                         throw "Required PSSQLite commands not available: $($missingCommands -join ', ')"
                     }
                     
                     $moduleFunctional = $true
-                    Write-BrowserLog "PSSQLite module functionality verified" "Success"
-                    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: PSSQLite module functionality verified successfully" -ForegroundColor Green
+                    Write-Host " PSSQLite module functionality verified successfully" -ForegroundColor Green
                 }
                 
             } catch {
                 $retryCount++
-                Write-BrowserLog "Error in PSSQLite module installation process: $_" "Warning"
-                Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Error in module installation process: $_" -ForegroundColor Red
+                Write-Host " Error in module installation process: $_" -ForegroundColor Red
                 
                 if ($retryCount -lt $MaxRetries) {
                     $delayTime = $RetryDelaySeconds * $retryCount
-                    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Waiting $delayTime seconds before retry..." -ForegroundColor Yellow
+                    Write-Host " Waiting $delayTime seconds before retry..." -ForegroundColor Yellow
                     Start-Sleep -Seconds $delayTime
                 }
             }
@@ -879,11 +837,10 @@ function Get-BrowserHistory {
     # Attempt to install and verify the PSSQLite module
     $psSqliteModuleFunctional = Install-SqliteModule -MaxRetries 3 -RetryDelaySeconds 2
     if (-not $psSqliteModuleFunctional) {
-        Write-BrowserLog "Could not install or verify PSSQLite module after multiple attempts" "Warning"
-        Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Will use fallback .NET SQLite access methods" -ForegroundColor Yellow
+        Write-Host " Could not install or verify PSSQLite module after multiple attempts" "Warning"
+        Write-Host " Will use fallback .NET SQLite access methods" -ForegroundColor Yellow
     } else {
-        Write-BrowserLog "PSSQLite module is ready for use" "Success"
-        Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: PSSQLite module is ready for use" -ForegroundColor Green
+        Write-Host " PSSQLite module is ready for use" -ForegroundColor Green
     }
     
     # Function to convert WebKit timestamp to DateTime
@@ -979,8 +936,7 @@ function Get-SQLiteBrowserHistory {
         }
         else {
             # Enhanced fallback method using .NET SQLite
-            Write-BrowserLog "Using enhanced .NET SQLite fallback access method" "Info"
-            Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Starting enhanced .NET SQLite fallback method" -ForegroundColor Cyan
+            Write-Host " Starting enhanced .NET SQLite fallback method" -ForegroundColor Cyan
             
             # Function to download and verify SQLite DLL
             function Get-SqliteDll {
@@ -990,7 +946,7 @@ function Get-SQLiteBrowserHistory {
                     [int]$RetryDelaySeconds = 2
                 )
                 
-                Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Searching for SQLite DLL..." -ForegroundColor Cyan
+                Write-Host " Searching for SQLite DLL..." -ForegroundColor Cyan
                 
                 # Potential DLL locations
                 $potentialPaths = @(
@@ -1009,14 +965,13 @@ function Get-SQLiteBrowserHistory {
                 # Check each potential location
                 foreach ($path in $potentialPaths) {
                     if (Test-Path -Path $path) {
-                        Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Found existing SQLite DLL at: $path" -ForegroundColor Green
+                        Write-Host " Found existing SQLite DLL at: $path" -ForegroundColor Green
                         return $path
                     }
                 }
                 
                 # If not found, download
-                Write-BrowserLog "SQLite DLL not found in any standard location. Need to download." "Info"
-                Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: SQLite DLL not found in any standard location. Will download." -ForegroundColor Yellow
+                Write-Host " SQLite DLL not found in any standard location. Will download." -ForegroundColor Yellow
                 
                 # Create download path in temp directory
                 $downloadPath = Join-Path -Path $env:TEMP -ChildPath "System.Data.SQLite.dll"
@@ -1032,7 +987,7 @@ function Get-SQLiteBrowserHistory {
                 while (-not $downloadSuccess -and $retryCount -lt $MaxRetries) {
                     foreach ($url in $urls) {
                         try {
-                            Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Downloading SQLite DLL from $url (Attempt $($retryCount + 1) of $MaxRetries)" -ForegroundColor Cyan
+                            Write-Host " Downloading SQLite DLL from $url (Attempt $($retryCount + 1) of $MaxRetries)" -ForegroundColor Cyan
                             
                             if ($url -like "*.zip") {
                                 # For ZIP files
@@ -1064,8 +1019,7 @@ function Get-SQLiteBrowserHistory {
                                     Remove-Item -Path $extractPath -Recurse -Force -ErrorAction SilentlyContinue
                                     
                                     $downloadSuccess = $true
-                                    Write-BrowserLog "Successfully downloaded and extracted SQLite DLL" "Success"
-                                    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Successfully downloaded and extracted SQLite DLL to $downloadPath" -ForegroundColor Green
+                                    Write-Host " Successfully downloaded and extracted SQLite DLL to $downloadPath" -ForegroundColor Green
                                     return $downloadPath
                                 }
                             }
@@ -1073,14 +1027,12 @@ function Get-SQLiteBrowserHistory {
                                 # For direct DLL download
                                 Invoke-WebRequest -Uri $url -OutFile $downloadPath -ErrorAction Stop
                                 $downloadSuccess = $true
-                                Write-BrowserLog "Successfully downloaded SQLite DLL" "Success"
-                                Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Successfully downloaded SQLite DLL to $downloadPath" -ForegroundColor Green
+                                Write-Host " Successfully downloaded SQLite DLL to $downloadPath" -ForegroundColor Green
                                 return $downloadPath
                             }
                         }
                         catch {
-                            Write-BrowserLog "Failed to download SQLite DLL from ${url}: $_" "Warning"
-                            Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Failed to download SQLite DLL from ${url}: $_" -ForegroundColor Red
+                            Write-Host " Failed to download SQLite DLL from ${url}: $_" -ForegroundColor Red
                             # Continue to next URL
                         }
                     }
@@ -1088,15 +1040,14 @@ function Get-SQLiteBrowserHistory {
                     $retryCount++
                     if ($retryCount -lt $MaxRetries) {
                         $delayTime = $RetryDelaySeconds * $retryCount
-                        Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Waiting $delayTime seconds before retry..." -ForegroundColor Yellow
+                        Write-Host " Waiting $delayTime seconds before retry..." -ForegroundColor Yellow
                         Start-Sleep -Seconds $delayTime
                     }
                 }
                 
                 # If all download attempts failed
                 if (-not $downloadSuccess) {
-                    Write-BrowserLog "All attempts to download SQLite DLL failed" "Error"
-                    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: All attempts to download SQLite DLL failed" -ForegroundColor Red
+                    Write-Host " All attempts to download SQLite DLL failed" -ForegroundColor Red
                     return $null
                 }
             }
@@ -1108,7 +1059,7 @@ function Get-SQLiteBrowserHistory {
                     [string]$DllPath
                 )
                 
-                Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Verifying SQLite DLL functionality at $DllPath" -ForegroundColor Cyan
+                Write-Host " Verifying SQLite DLL functionality at $DllPath" -ForegroundColor Cyan
                 
                 try {
                     # Try to load the assembly
@@ -1131,13 +1082,11 @@ function Get-SQLiteBrowserHistory {
                     $result = $reader.Read()
                     $connection.Close()
                     
-                    Write-BrowserLog "SQLite DLL functionality verified successfully" "Success"
-                    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: SQLite DLL functionality verified successfully" -ForegroundColor Green
+                    Write-Host " SQLite DLL functionality verified successfully" -ForegroundColor Green
                     return $true
                 }
                 catch {
-                    Write-BrowserLog "SQLite DLL verification failed: $_" "Warning"
-                    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: SQLite DLL verification failed: $_" -ForegroundColor Red
+                    Write-Host " SQLite DLL verification failed: $_" -ForegroundColor Red
                     return $false
                 }
             }
@@ -1153,8 +1102,7 @@ function Get-SQLiteBrowserHistory {
             
             # If DLL not found or not functional, return empty results
             if (-not $dllFunctional) {
-                Write-BrowserLog "Could not find or verify a working SQLite DLL. Returning empty results." "Warning"
-                Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Could not find or verify a working SQLite DLL. Returning empty results." -ForegroundColor Red
+                Write-Host " Could not find or verify a working SQLite DLL. Returning empty results." -ForegroundColor Red
                 
                 if (Test-Path -Path $tempDbPath) {
                     Remove-Item -Path $tempDbPath -Force -ErrorAction SilentlyContinue
