@@ -1,4 +1,4 @@
-﻿<#
+<#
 .DESCRIPTION
     PowerShell script for Digital Forensics and Incident Response.
     Collects system, network, process, user, directory, and browser information 
@@ -708,507 +708,182 @@ function Get-UsbDeviceInfo {
 }
 
 function Get-BrowserHistory {
-    param (
-        [int]$MaxRetries = 3,
-        [int]$MaxEntries = 1000,
-        [string]$CustomModulePath = $null,
-        [switch]$Force
-    )
-
-    Write-DFIRLog "Collecting browser history..."
+    Write-DFIRLog "Collecting browser history..." "Info"
+    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Starting browser history collection..." -ForegroundColor Cyan
     
     $browserHistory = @{
         Chrome = @()
         Edge = @()
+        # Firefox will be added in version 1.1
     }
     
-    # Define module installation paths for verification
-    $modulePaths = @(
-        "$env:ProgramFiles\WindowsPowerShell\Modules\PSSQLite",
-        "$env:USERPROFILE\Documents\WindowsPowerShell\Modules\PSSQLite",
-        "$([Environment]::GetFolderPath('MyDocuments'))\WindowsPowerShell\Modules\PSSQLite",
-        "$env:USERPROFILE\Documents\PowerShell\Modules\PSSQLite",
-        "$([Environment]::GetFolderPath('MyDocuments'))\PowerShell\Modules\PSSQLite"
-    )
+    #region Helper Functions - Chunk 1: Utility Code
     
-    if ($CustomModulePath) {
-        $modulePaths += $CustomModulePath
-    }
-    
-    # Function to pause execution with progress display
-    function Wait-WithProgress {
-        param (
-            [int]$Seconds,
-            [string]$Activity
-        )
+    # Function to detect execution context (system account, administrative user, etc.)
+    function Get-ExecutionContext {
+        $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+        $principal = New-Object System.Security.Principal.WindowsPrincipal($identity)
+        $isAdmin = $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+        $isSystem = $identity.User.Value -eq "S-1-5-18"  # System account SID
         
-        for ($i = 1; $i -le $Seconds; $i++) {
-            $percent = ($i / $Seconds) * 100
-            Write-Progress -Activity $Activity -Status "Please wait..." -PercentComplete $percent
-            Start-Sleep -Seconds 1
+        Write-DFIRLog "Execution context: $($identity.Name) (Admin: $isAdmin, System: $isSystem)" "Info"
+        Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Execution context: $($identity.Name)" -ForegroundColor Yellow
+        Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Administrative rights: $isAdmin" -ForegroundColor Yellow
+        Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] System account: $isSystem" -ForegroundColor Yellow
+        
+        return @{
+            IsAdministrator = $isAdmin
+            IsSystemAccount = $isSystem
+            UserSID = $identity.User.Value
+            UserName = $identity.Name
         }
-        
-        Write-Progress -Activity $Activity -Completed
     }
     
-    # Function to retry operations with exponential backoff
-    function Invoke-WithRetry {
+    # Function to write detailed, colorized log messages for troubleshooting
+    function Write-BrowserLog {
         param (
             [Parameter(Mandatory = $true)]
-            [scriptblock]$ScriptBlock,
+            [string]$Message,
             
-            [int]$MaxRetries = 3,
-            [int]$InitialDelay = 2,
-            [string]$OperationName = "Operation",
-            [switch]$Silent
+            [Parameter(Mandatory = $false)]
+            [ValidateSet("Info", "Warning", "Error", "Success", "Verbose")]
+            [string]$Level = "Info"
         )
         
-        $retryCount = 0
-        $delay = $InitialDelay
-        $success = $false
-        $result = $null
-        $lastError = $null
+        # First, log to the standard DFIR log
+        Write-DFIRLog $Message $Level
         
-        while (-not $success -and $retryCount -le $MaxRetries) {
+        # Then provide enhanced console output with timestamps and colors
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        $prefix = "[BROWSER][$timestamp]"
+        
+        # Select color based on level
+        switch ($Level) {
+            "Info"     { Write-Host "$prefix $Message" -ForegroundColor Cyan }
+            "Warning"  { Write-Host "$prefix $Message" -ForegroundColor Yellow }
+            "Error"    { Write-Host "$prefix $Message" -ForegroundColor Red }
+            "Success"  { Write-Host "$prefix $Message" -ForegroundColor Green }
+            "Verbose"  { Write-Host "$prefix $Message" -ForegroundColor Gray }
+        }
+    }
+    
+    #endregion Helper Functions
+    
+    # SentinelOne compatibility - Detect execution context
+    $context = Get-ExecutionContext
+    Write-BrowserLog "Starting browser history collection in context: $($context.UserName)" "Info"
+    if ($context.IsSystemAccount) {
+        Write-BrowserLog "Running in SYSTEM account context (SentinelOne) - using enhanced compatibility mode" "Info"
+    }
+    
+    # Enhanced SQLite module installation and verification function
+    function Install-SqliteModule {
+        [CmdletBinding()]
+        param(
+            [int]$MaxRetries = 3,
+            [int]$RetryDelaySeconds = 2
+        )
+        
+        Write-BrowserLog "Starting enhanced PSSQLite module installation process..." "Info"
+        Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Starting PSSQLite module installation and verification" -ForegroundColor Cyan
+        
+        # Check if module is already available
+        $moduleInstalled = $false
+        $moduleImported = $false
+        $moduleFunctional = $false
+        $retryCount = 0
+        $installScope = if ($context.IsSystemAccount) { "AllUsers" } else { "CurrentUser" }
+        
+        Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Checking if PSSQLite module is already installed..." -ForegroundColor Cyan
+        
+        # Check if module is installed
+        if (Get-Module -ListAvailable -Name PSSQLite) {
+            $moduleInstalled = $true
+            Write-BrowserLog "PSSQLite module is already installed" "Info"
+            Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: PSSQLite module is already installed" -ForegroundColor Green
+        }
+        
+        # Installation and verification loop
+        while ((-not $moduleFunctional) -and ($retryCount -lt $MaxRetries)) {
             try {
-                if ($retryCount -gt 0 -and -not $Silent) {
-                    Write-DFIRLog "Retrying $OperationName (Attempt $retryCount of $MaxRetries)..." "Info"
-                }
-                
-                $result = & $ScriptBlock
-                $success = $true
-                return $result
-            }
-            catch {
-                $lastError = $_
-                $retryCount++
-                
-                if (-not $Silent) {
-                    Write-DFIRLog "$OperationName failed: $lastError" "Warning"
-                }
-                
-                if ($retryCount -le $MaxRetries) {
-                    if (-not $Silent) {
-                        Write-DFIRLog "Waiting $delay seconds before retrying..." "Info"
+                # If not installed, install the module
+                if (-not $moduleInstalled) {
+                    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Installing PSSQLite module (Attempt $($retryCount + 1) of $MaxRetries)" -ForegroundColor Cyan
+                    Write-BrowserLog "Installing PSSQLite module (Attempt $($retryCount + 1) of $MaxRetries)" "Info"
+                    
+                    # Install NuGet provider if needed
+                    if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) {
+                        Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Installing NuGet package provider..." -ForegroundColor Cyan
+                        Install-PackageProvider -Name NuGet -Force -Scope $installScope | Out-Null
+                        Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: NuGet package provider installed successfully" -ForegroundColor Green
                     }
                     
-                    Wait-WithProgress -Seconds $delay -Activity "Waiting before retry"
-                    $delay *= 2  # Exponential backoff
-                }
-                else {
-                    if (-not $Silent) {
-                        Write-DFIRLog "$OperationName failed after $MaxRetries attempts" "Warning"
-                    }
-                    throw $lastError
-                }
-            }
-        }
-    }
-    
-    # Function to safely remove items with retries
-    function Remove-FileWithRetry {
-        param (
-            [string]$Path,
-            [int]$Retries = 3
-        )
-        
-        if (-not (Test-Path -Path $Path)) {
-            return $true
-        }
-        
-        $attempt = 0
-        while ($attempt -lt $Retries) {
-            try {
-                Remove-Item -Path $Path -Force -ErrorAction Stop
-                return $true
-            }
-            catch {
-                $attempt++
-                if ($attempt -ge $Retries) {
-                    Write-DFIRLog "Failed to remove file $Path after $Retries attempts: $_" "Warning"
-                    return $false
-                }
-                Start-Sleep -Seconds 1
-            }
-        }
-        
-        return $false
-    }
-    
-    # Function to check if PSSQLite module is correctly installed and loaded
-    function Test-PSSQLiteModule {
-        # Check if module is available in PSModulePath
-        $moduleLoaded = Get-Module -Name PSSQLite -ErrorAction SilentlyContinue
-        $moduleAvailable = Get-Module -ListAvailable -Name PSSQLite -ErrorAction SilentlyContinue
-        
-        if ($moduleLoaded) {
-            # Module is already loaded, test if it's functioning
-            try {
-                # Try to access a cmdlet from the module to verify it's working
-                $null = Get-Command -Name Invoke-SqliteQuery -ErrorAction Stop
-                return $true
-            }
-            catch {
-                Write-DFIRLog "PSSQLite module is loaded but not functioning correctly" "Warning"
-                return $false
-            }
-        }
-        elseif ($moduleAvailable) {
-            # Module is available but not loaded, try to import it
-            try {
-                Import-Module PSSQLite -Force -ErrorAction Stop
-                $null = Get-Command -Name Invoke-SqliteQuery -ErrorAction Stop
-                return $true
-            }
-            catch {
-                Write-DFIRLog "Failed to import available PSSQLite module: $_" "Warning"
-                return $false
-            }
-        }
-        
-        return $false
-    }
-    
-    # Function to ensure NuGet provider is installed
-    function Ensure-NuGetProvider {
-        try {
-            if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) {
-                Write-DFIRLog "Installing NuGet package provider..." "Info"
-                
-                # Try to install NuGet with retries
-                Invoke-WithRetry -ScriptBlock {
-                    Install-PackageProvider -Name NuGet -Force -Scope CurrentUser -MinimumVersion 2.8.5.201 -ErrorAction Stop | Out-Null
-                } -MaxRetries 3 -OperationName "NuGet provider installation"
-                
-                # Verify installation
-                if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) {
-                    throw "Failed to verify NuGet provider installation"
+                    # Install module with progress reporting
+                    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Installing PSSQLite module with scope $installScope..." -ForegroundColor Cyan
+                    Install-Module -Name PSSQLite -Force -Scope $installScope -ErrorAction Stop | Out-Null
+                    $moduleInstalled = $true
+                    Write-BrowserLog "PSSQLite module installation completed" "Success"
+                    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: PSSQLite module installation completed" -ForegroundColor Green
                 }
                 
-                Write-DFIRLog "NuGet package provider installed successfully" "Info"
+                # Try to import the module
+                if (-not $moduleImported) {
+                    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Importing PSSQLite module..." -ForegroundColor Cyan
+                    Import-Module PSSQLite -Force -ErrorAction Stop
+                    $moduleImported = $true
+                    Write-BrowserLog "PSSQLite module imported successfully" "Success"
+                    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: PSSQLite module imported successfully" -ForegroundColor Green
+                }
                 
-                # Register PSGallery if needed
-                if (-not (Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue)) {
-                    Register-PSRepository -Default -ErrorAction SilentlyContinue
-                    Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue
-                }
-            }
-            else {
-                Write-DFIRLog "NuGet package provider already installed" "Info"
-            }
-            
-            return $true
-        }
-        catch {
-            Write-DFIRLog "Error ensuring NuGet provider: $_" "Warning"
-            return $false
-        }
-    }
-    
-    # Function to install PSSQLite module with verification
-    function Install-PSSQLiteWithVerification {
-        param (
-            [switch]$Force
-        )
-        
-        try {
-            # Ensure NuGet is available first
-            if (-not (Ensure-NuGetProvider)) {
-                Write-DFIRLog "NuGet provider installation failed, cannot install PSSQLite" "Warning"
-                return $false
-            }
-            
-            Write-DFIRLog "Installing PSSQLite module..." "Info"
-            
-            # If force is specified, uninstall existing module first
-            if ($Force) {
-                try {
-                    Uninstall-Module -Name PSSQLite -AllVersions -Force -ErrorAction SilentlyContinue
-                    Remove-Module -Name PSSQLite -Force -ErrorAction SilentlyContinue
-                    Write-DFIRLog "Removed existing PSSQLite module for clean installation" "Info"
-                }
-                catch {
-                    Write-DFIRLog "Error removing existing module: $_" "Warning"
-                    # Continue anyway
-                }
-            }
-            
-            # Try to install module with retries
-            Invoke-WithRetry -ScriptBlock {
-                Install-Module -Name PSSQLite -Force -Scope CurrentUser -AllowClobber -SkipPublisherCheck -ErrorAction Stop | Out-Null
-            } -MaxRetries 3 -OperationName "PSSQLite module installation"
-            
-            # Wait for module to be fully installed
-            Write-DFIRLog "Waiting for module installation to complete..." "Info"
-            Wait-WithProgress -Seconds 5 -Activity "Finalizing module installation"
-            
-            # Verify the module files exist on disk
-            $moduleFilesExist = $false
-            foreach ($path in $modulePaths) {
-                if (Test-Path -Path $path) {
-                    Write-DFIRLog "PSSQLite module files found at: $path" "Info"
-                    $moduleFilesExist = $true
-                    break
-                }
-            }
-            
-            if (-not $moduleFilesExist) {
-                throw "PSSQLite module installation completed but files not found on disk"
-            }
-            
-            # Force re-import the module if it exists
-            Remove-Module -Name PSSQLite -Force -ErrorAction SilentlyContinue
-            Import-Module PSSQLite -Force -ErrorAction Stop
-            
-            # Check if the module is properly imported
-            $moduleLoaded = Get-Module -Name PSSQLite -ErrorAction SilentlyContinue
-            if (-not $moduleLoaded) {
-                throw "PSSQLite module installation verified but module failed to import"
-            }
-            
-            # Check if cmdlets from the module are available
-            $null = Get-Command -Name Invoke-SqliteQuery -ErrorAction Stop
-            
-            Write-DFIRLog "PSSQLite module installed, imported and verified successfully" "Info"
-            return $true
-        }
-        catch {
-            Write-DFIRLog "Error installing PSSQLite module: $_" "Warning"
-            return $false
-        }
-    }
-    
-    # Function to download file with verification and retries - using Invoke-WebRequest for compatibility
-    function Download-FileWithRetry {
-        param (
-            [string]$Uri,
-            [string]$OutFile,
-            [int]$MaxRetries = 3,
-            [int]$Timeout = 30,
-            [switch]$UseBackupUri
-        )
-        
-        # Define backup URLs for reliability
-        $backupUris = @(
-            "https://github.com/aspnet/Microsoft.Data.Sqlite/raw/main/src/libs/sqlite/x64/sqlite3.dll",
-            "https://github.com/sqlitebrowser/sqlitebrowser/raw/master/src/sqlite3.c",
-            "https://system.data.sqlite.org/downloads/1.0.118.0/sqlite-netFx-source-1.0.118.0.zip"
-        )
-        
-        if ($UseBackupUri) {
-            # Try a different backup URI
-            $backupIndex = Get-Random -Minimum 0 -Maximum $backupUris.Count
-            $Uri = $backupUris[$backupIndex]
-            Write-DFIRLog "Using alternative download source: $Uri" "Info"
-        }
-        
-        try {
-            Write-DFIRLog "Downloading file from $Uri to $OutFile..." "Info"
-            
-            # Use TLS 1.2
-            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-            
-            # Use Invoke-WebRequest with timeout parameter instead of WebClient
-            $ProgressPreference = 'SilentlyContinue'  # Hide progress bar for faster downloads
-            Invoke-WebRequest -Uri $Uri -OutFile $OutFile -TimeoutSec $Timeout -ErrorAction Stop
-            
-            # Verify file was downloaded
-            if (-not (Test-Path -Path $OutFile) -or (Get-Item -Path $OutFile).Length -eq 0) {
-                throw "File download failed or file is empty"
-            }
-            
-            Write-DFIRLog "File downloaded successfully to $OutFile" "Info"
-            return $true
-        }
-        catch {
-            Write-DFIRLog "Download failed: $_" "Warning"
-            
-            if ($MaxRetries -gt 0) {
-                Write-DFIRLog "Retrying download with $MaxRetries attempts remaining..." "Info"
-                
-                if ($UseBackupUri -or (Get-Random -Minimum 1 -Maximum 3) -eq 1) {
-                    # Try with backup URI sometimes
-                    return Download-FileWithRetry -Uri $Uri -OutFile $OutFile -MaxRetries ($MaxRetries - 1) -Timeout $Timeout -UseBackupUri
-                }
-                else {
-                    # Retry with same URI
-                    return Download-FileWithRetry -Uri $Uri -OutFile $OutFile -MaxRetries ($MaxRetries - 1) -Timeout ($Timeout + 5)
-                }
-            }
-            
-            return $false
-        }
-    }
-    
-    # Function to verify and ensure .NET SQLite is available
-    function Ensure-SQLiteDotNetAvailable {
-        $dllPaths = @(
-            # Try script directory first
-            (Join-Path -Path $PSScriptRoot -ChildPath "System.Data.SQLite.dll"),
-            # Try temp directory next
-            (Join-Path -Path $env:TEMP -ChildPath "System.Data.SQLite.dll"),
-            # Try program data location
-            (Join-Path -Path $env:ProgramData -ChildPath "System.Data.SQLite.dll"),
-            # Try Sentinel RSO path specifically
-            "C:\ProgramData\Sentinel\Addons\SentinelRSO\Script\System.Data.SQLite.dll",
-            # Try user profile location
-            (Join-Path -Path $env:USERPROFILE -ChildPath "System.Data.SQLite.dll")
-        )
-        
-        # First check if DLL already exists in any of the potential locations
-        foreach ($dllPath in $dllPaths) {
-            if (Test-Path -Path $dllPath) {
-                try {
-                    # Try to load the DLL to verify it works
-                    Add-Type -Path $dllPath -ErrorAction Stop
-                    Write-DFIRLog "SQLite .NET provider found and loaded from $dllPath" "Info"
-                    return $dllPath
-                }
-                catch {
-                    Write-DFIRLog "Found SQLite DLL at $dllPath but failed to load it: $_" "Warning"
-                    # Continue to try other locations or download
-                }
-            }
-        }
-        
-        # Determine where to save the downloaded DLL
-        $savePath = $dllPaths[1]  # Default to temp directory
-        
-        # URLs to try
-        $downloadUrls = @(
-            "https://system.data.sqlite.org/downloads/1.0.118.0/sqlite-netFx46-static-binary-bundle-x64-2022-x64.zip",
-            "https://github.com/SQLite-net/SQLite-net/raw/main/nuget/SQLite-net/lib/netstandard2.0/SQLite-net.dll",
-            "https://github.com/aspnet/Microsoft.Data.Sqlite/raw/main/src/libs/sqlite/x64/sqlite3.dll"
-        )
-        
-        # Try each URL
-        foreach ($url in $downloadUrls) {
-            $tempZipPath = "$env:TEMP\sqlite_temp_$(Get-Random).zip"
-            
-            if ($url.EndsWith(".zip")) {
-                # For zip files, download and extract
-                if (Download-FileWithRetry -Uri $url -OutFile $tempZipPath -MaxRetries 3 -Timeout 60) {
-                    try {
-                        # Extract the zip file
-                        $extractPath = "$env:TEMP\sqlite_extract_$(Get-Random)"
-                        New-Item -Path $extractPath -ItemType Directory -Force | Out-Null
-                        
-                        # Use .NET to extract
-                        Add-Type -AssemblyName System.IO.Compression.FileSystem
-                        [System.IO.Compression.ZipFile]::ExtractToDirectory($tempZipPath, $extractPath)
-                        
-                        # Find SQLite DLL in the extracted content
-                        $extractedDll = Get-ChildItem -Path $extractPath -Recurse -Filter "System.Data.SQLite.dll" | Select-Object -First 1
-                        
-                        if ($extractedDll) {
-                            # Copy to our save location
-                            Copy-Item -Path $extractedDll.FullName -Destination $savePath -Force
-                            Write-DFIRLog "Extracted SQLite DLL to $savePath" "Info"
-                            
-                            # Clean up temp files
-                            Remove-FileWithRetry -Path $tempZipPath
-                            Remove-Item -Path $extractPath -Recurse -Force -ErrorAction SilentlyContinue
-                            
-                            # Try to load the DLL
-                            try {
-                                Add-Type -Path $savePath -ErrorAction Stop
-                                Write-DFIRLog "SQLite .NET provider downloaded, extracted and loaded successfully" "Info"
-                                return $savePath
-                            }
-                            catch {
-                                Write-DFIRLog "Error loading extracted SQLite DLL: $_" "Warning"
-                                # Continue to try other URLs
-                            }
-                        }
-                        else {
-                            Write-DFIRLog "Could not find System.Data.SQLite.dll in extracted content" "Warning"
-                            # Clean up and try next URL
-                            Remove-FileWithRetry -Path $tempZipPath
-                            Remove-Item -Path $extractPath -Recurse -Force -ErrorAction SilentlyContinue
+                # Verify module functionality by testing a command
+                if ($moduleImported) {
+                    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Verifying PSSQLite module functionality..." -ForegroundColor Cyan
+                    
+                    # Check if required commands are available
+                    $requiredCommands = @('Invoke-SqliteQuery', 'New-SqliteConnection')
+                    $missingCommands = @()
+                    
+                    foreach ($command in $requiredCommands) {
+                        if (-not (Get-Command $command -ErrorAction SilentlyContinue)) {
+                            $missingCommands += $command
                         }
                     }
-                    catch {
-                        Write-DFIRLog "Error extracting ZIP file: $_" "Warning"
-                        Remove-FileWithRetry -Path $tempZipPath
+                    
+                    if ($missingCommands.Count -gt 0) {
+                        Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Missing required commands: $($missingCommands -join ', ')" -ForegroundColor Yellow
+                        throw "Required PSSQLite commands not available: $($missingCommands -join ', ')"
                     }
+                    
+                    $moduleFunctional = $true
+                    Write-BrowserLog "PSSQLite module functionality verified" "Success"
+                    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: PSSQLite module functionality verified successfully" -ForegroundColor Green
                 }
-            }
-            else {
-                # For direct DLL downloads
-                if (Download-FileWithRetry -Uri $url -OutFile $savePath -MaxRetries 3 -Timeout 60) {
-                    try {
-                        # Try to load the DLL
-                        Add-Type -Path $savePath -ErrorAction Stop
-                        Write-DFIRLog "SQLite .NET provider downloaded and loaded successfully" "Info"
-                        return $savePath
-                    }
-                    catch {
-                        Write-DFIRLog "Error loading downloaded SQLite DLL: $_" "Warning"
-                        # Continue to try other URLs
-                    }
+                
+            } catch {
+                $retryCount++
+                Write-BrowserLog "Error in PSSQLite module installation process: $_" "Warning"
+                Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Error in module installation process: $_" -ForegroundColor Red
+                
+                if ($retryCount -lt $MaxRetries) {
+                    $delayTime = $RetryDelaySeconds * $retryCount
+                    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Waiting $delayTime seconds before retry..." -ForegroundColor Yellow
+                    Start-Sleep -Seconds $delayTime
                 }
             }
         }
         
-        # If all downloads fail, try to use .NET embedded SQLite
-        try {
-            # Try to dynamically load SQLite from .NET
-            Add-Type -TypeDefinition @"
-using System;
-using System.Data;
-using System.Data.Common;
-using Microsoft.Data.Sqlite;
-
-public static class SQLiteHelper
-{
-    public static bool TestConnection(string dbPath)
-    {
-        try 
-        {
-            using (var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=" + dbPath + ";Mode=ReadOnly"))
-            {
-                connection.Open();
-                return connection.State == ConnectionState.Open;
-            }
-        }
-        catch 
-        {
-            return false;
-        }
+        # Return the status of module installation and functionality
+        return $moduleFunctional
     }
-}
-"@ -ErrorAction Stop
-            
-            Write-DFIRLog "Using built-in Microsoft.Data.Sqlite provider instead" "Info"
-            return ".NET"
-        }
-        catch {
-            Write-DFIRLog "Failed to load embedded SQLite provider: $_" "Warning"
-        }
-        
-        # Last resort: try to use PowerShell's own SQLite capabilities
-        try {
-            # Check if PowerShell can access SQLite via .NET Core
-            $testScript = @"
-try { 
-    [Microsoft.Data.Sqlite.SqliteConnection] | Out-Null
-    return $true 
-} catch { 
-    return $false 
-}
-"@
-            $psHasSQLite = Invoke-Expression $testScript
-            
-            if ($psHasSQLite) {
-                Write-DFIRLog "PowerShell has built-in SQLite support" "Info"
-                return "PS"
-            }
-        }
-        catch {
-            Write-DFIRLog "PowerShell does not have built-in SQLite support" "Warning"
-        }
-        
-        return $null
+    
+    # Attempt to install and verify the PSSQLite module
+    $psSqliteModuleFunctional = Install-SqliteModule -MaxRetries 3 -RetryDelaySeconds 2
+    if (-not $psSqliteModuleFunctional) {
+        Write-BrowserLog "Could not install or verify PSSQLite module after multiple attempts" "Warning"
+        Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Will use fallback .NET SQLite access methods" -ForegroundColor Yellow
+    } else {
+        Write-BrowserLog "PSSQLite module is ready for use" "Success"
+        Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: PSSQLite module is ready for use" -ForegroundColor Green
     }
     
     # Function to convert WebKit timestamp to DateTime
@@ -1218,498 +893,358 @@ try {
             [Int64]$WebkitTimestamp
         )
         
+        # Webkit timestamps are microseconds since Jan 1, 1601 UTC
+        # Convert to DateTime
         try {
             if ($WebkitTimestamp -eq 0) {
                 return $null
             }
             
             # Convert to DateTime (WebKit timestamp is microseconds since Jan 1, 1601)
-            $epochAdjust = New-Object DateTime(1601, 1, 1, 0, 0, 0, [DateTimeKind]::Utc)
+            $epochAdjust = New-Object System.DateTime -ArgumentList 1601, 1, 1, 0, 0, 0, ([System.DateTimeKind]::Utc)
             return $epochAdjust.AddMilliseconds($WebkitTimestamp / 1000)
-        }
-        catch {
+        } catch {
             # Return current date if conversion fails
-            return Get-Date
+            Get-Date
         }
     }
     
-    # Function to create a temporary copy of a database file with retries
+    # Function to create a temporary copy of a database file
     function Get-TemporaryDatabaseCopy {
         param (
             [Parameter(Mandatory = $true)]
-            [string]$SourcePath,
-            [int]$MaxRetries = 3,
-            [int]$WaitTime = 2
+            [string]$SourcePath
         )
         
         try {
-            # Create a temporary file path with random name to avoid conflicts
+            # Create a temporary file path
             $tempDbPath = "$env:TEMP\dfir_temp_db_$(Get-Random).db"
             
-            if (-not (Test-Path -Path $SourcePath)) {
+            if (Test-Path -Path $SourcePath) {
+                # Try to copy the file (it may be locked by the browser)
+                Copy-Item -Path $SourcePath -Destination $tempDbPath -Force -ErrorAction Stop
+                return $tempDbPath
+            } else {
                 Write-DFIRLog "Database file not found: $SourcePath" "Warning"
                 return $null
             }
-            
-            # Try to copy the file (it may be locked by the browser)
-            $retryCount = 0
-            $success = $false
-            
-            while (-not $success -and $retryCount -lt $MaxRetries) {
-                try {
-                    Copy-Item -Path $SourcePath -Destination $tempDbPath -Force -ErrorAction Stop
-                    $success = $true
-                }
-                catch {
-                    $retryCount++
-                    
-                    if ($retryCount -ge $MaxRetries) {
-                        Write-DFIRLog "Failed to copy database after $MaxRetries attempts: $_" "Warning"
-                        
-                        # Try a different approach as last resort - use Volume Shadow Copy
-                        try {
-                            Write-DFIRLog "Attempting to create shadow copy of database..." "Info"
-                            
-                            # Create temp folder for shadow copy
-                            $shadowFolder = "$env:TEMP\dfir_shadow_$(Get-Random)"
-                            New-Item -Path $shadowFolder -ItemType Directory -Force | Out-Null
-                            
-                            # Use robocopy to try to copy the locked file
-                            $robocopyArgs = @(
-                                "`"$(Split-Path -Parent $SourcePath)`"",
-                                "`"$shadowFolder`"",
-                                "`"$(Split-Path -Leaf $SourcePath)`"",
-                                "/B",  # Backup mode for locked files
-                                "/R:3", # Retry 3 times
-                                "/W:1", # Wait 1 second between retries
-                                "/NP",  # No progress
-                                "/NFL", # No file list
-                                "/NDL"  # No directory list
-                            )
-                            
-                            $robocopyResult = Start-Process -FilePath "robocopy.exe" -ArgumentList $robocopyArgs -NoNewWindow -Wait -PassThru
-                            
-                            if ($robocopyResult.ExitCode -lt 8) {
-                                # Robocopy successful (exit codes 0-7 indicate success with various warnings)
-                                $shadowFile = Join-Path -Path $shadowFolder -ChildPath (Split-Path -Leaf $SourcePath)
-                                
-                                if (Test-Path -Path $shadowFile) {
-                                    Copy-Item -Path $shadowFile -Destination $tempDbPath -Force -ErrorAction Stop
-                                    Remove-Item -Path $shadowFolder -Recurse -Force -ErrorAction SilentlyContinue
-                                    $success = $true
-                                }
-                                else {
-                                    throw "Shadow copy succeeded but file not found"
-                                }
-                            }
-                            else {
-                                throw "Robocopy failed with exit code $($robocopyResult.ExitCode)"
-                            }
-                        }
-                        catch {
-                            Write-DFIRLog "Shadow copy attempt failed: $_" "Warning"
-                            return $null
-                        }
-                    }
-                    else {
-                        Write-DFIRLog "Retrying database copy (Attempt $retryCount of $MaxRetries)..." "Info"
-                        Start-Sleep -Seconds $WaitTime
-                        $WaitTime *= 2  # Exponential backoff
-                    }
-                }
-            }
-            
-            # Verify the copy worked and is readable
-            if (Test-Path -Path $tempDbPath) {
-                $fileInfo = Get-Item -Path $tempDbPath
-                
-                if ($fileInfo.Length -gt 0) {
-                    return $tempDbPath
-                }
-                else {
-                    Write-DFIRLog "Created database copy is empty" "Warning"
-                    Remove-FileWithRetry -Path $tempDbPath
-                    return $null
-                }
-            }
-            
-            return $null
-        }
-        catch {
+        } catch {
             Write-DFIRLog "Error creating temporary database copy: $_" "Warning"
             return $null
         }
     }
     
-    # Function to query browser history with various methods
-    function Get-SQLiteBrowserHistory {
-        param (
-            [Parameter(Mandatory = $true)]
-            [string]$DatabasePath,
-            [Parameter(Mandatory = $false)]
-            [int]$MaxEntries = 1000,
-            [Parameter(Mandatory = $false)]
-            [int]$MaxRetries = 2
-        )
-        
-        $results = @()
-        $methodsAttempted = @()
-        
-        # SQL query to extract browser history - same for all methods
-        $query = @"
-SELECT 
-    urls.url as URL,
-    urls.title as Title,
-    urls.visit_count as VisitCount,
-    MAX(visits.visit_time) as LastVisitTime
-FROM urls
-LEFT JOIN visits ON urls.id = visits.url
-GROUP BY urls.url
-ORDER BY LastVisitTime DESC
-LIMIT $MaxEntries;
-"@
-        
+    # Function to query browser history with PSSQLite
+function Get-SQLiteBrowserHistory {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$DatabasePath,
+        [Parameter(Mandatory = $false)]
+        [int]$MaxEntries = 1000
+    )
+    $results = @()
+    try {
         # Create a temporary copy of the database
-        $tempDbPath = Get-TemporaryDatabaseCopy -SourcePath $DatabasePath -MaxRetries 3
+        $tempDbPath = Get-TemporaryDatabaseCopy -SourcePath $DatabasePath
         if ($null -eq $tempDbPath) {
-            Write-DFIRLog "Failed to create a temporary copy of the database" "Warning"
             return $results
         }
-        
-        # Method 1: Try to use PSSQLite module (preferred method)
-        if (Test-PSSQLiteModule) {
-            try {
-                Write-DFIRLog "Using PSSQLite module to query history" "Info"
-                $methodsAttempted += "PSSQLite Module"
+        # Use PSSQLite if available
+        if (Get-Module -Name PSSQLite -ErrorAction SilentlyContinue) {
+            $query = @"
+                SELECT 
+                    urls.url as URL,
+                    urls.title as Title,
+                    urls.visit_count as VisitCount,
+                    MAX(visits.visit_time) as LastVisitTime
+                FROM urls
+                LEFT JOIN visits ON urls.id = visits.url
+                GROUP BY urls.url
+                ORDER BY LastVisitTime DESC
+                LIMIT $MaxEntries;
+"@
+            $results = Invoke-SqliteQuery -DataSource $tempDbPath -Query $query -ErrorAction Stop | ForEach-Object {
+                $lastVisitTime = if ($_.LastVisitTime) {
+                    ConvertFrom-WebKitTimestamp -WebkitTimestamp $_.LastVisitTime
+                } else {
+                    Get-Date
+                }
+                [PSCustomObject]@{
+                    URL        = $_.URL
+                    Title      = if ([string]::IsNullOrEmpty($_.Title)) { "No Title" } else { $_.Title }
+                    VisitCount = $_.VisitCount
+                    LastVisit  = $lastVisitTime.ToString("yyyy-MM-dd HH:mm:ss")
+                }
+            }
+        }
+        else {
+            # Enhanced fallback method using .NET SQLite
+            Write-BrowserLog "Using enhanced .NET SQLite fallback access method" "Info"
+            Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Starting enhanced .NET SQLite fallback method" -ForegroundColor Cyan
+            
+            # Function to download and verify SQLite DLL
+            function Get-SqliteDll {
+                [CmdletBinding()]
+                param(
+                    [int]$MaxRetries = 3,
+                    [int]$RetryDelaySeconds = 2
+                )
                 
-                $moduleResults = Invoke-WithRetry -ScriptBlock {
-                    Invoke-SqliteQuery -DataSource $tempDbPath -Query $query -ErrorAction Stop
-                } -MaxRetries $MaxRetries -OperationName "SQLite Query" -Silent
+                Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Searching for SQLite DLL..." -ForegroundColor Cyan
                 
-                $results = $moduleResults | ForEach-Object {
-                    $lastVisitTime = if ($_.LastVisitTime) {
-                        ConvertFrom-WebKitTimestamp -WebkitTimestamp $_.LastVisitTime
+                # Potential DLL locations
+                $potentialPaths = @(
+                    # Script directory
+                    (Join-Path -Path $PSScriptRoot -ChildPath "System.Data.SQLite.dll"),
+                    # Current directory
+                    (Join-Path -Path (Get-Location) -ChildPath "System.Data.SQLite.dll"),
+                    # Already in temp
+                    (Join-Path -Path $env:TEMP -ChildPath "System.Data.SQLite.dll"),
+                    # Common locations
+                    "C:\Windows\System32\System.Data.SQLite.dll",
+                    "$PrimaryUserLocalAppData\Programs\System.Data.SQLite.dll",
+                    "$PrimaryUserLocalAppData\SQLite\System.Data.SQLite.dll"
+                )
+                
+                # Check each potential location
+                foreach ($path in $potentialPaths) {
+                    if (Test-Path -Path $path) {
+                        Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Found existing SQLite DLL at: $path" -ForegroundColor Green
+                        return $path
                     }
-                    else {
-                        Get-Date
+                }
+                
+                # If not found, download
+                Write-BrowserLog "SQLite DLL not found in any standard location. Need to download." "Info"
+                Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: SQLite DLL not found in any standard location. Will download." -ForegroundColor Yellow
+                
+                # Create download path in temp directory
+                $downloadPath = Join-Path -Path $env:TEMP -ChildPath "System.Data.SQLite.dll"
+                $urls = @(
+                    "https://github.com/aspnet/Microsoft.Data.Sqlite/raw/main/src/libs/sqlite/x64/sqlite3.dll",
+                    "https://www.sqlite.org/2024/sqlite-dll-win64-x64-3430000.zip" # Backup source if GitHub fails
+                )
+                
+                $retryCount = 0
+                $downloadSuccess = $false
+                
+                # Download with retry logic
+                while (-not $downloadSuccess -and $retryCount -lt $MaxRetries) {
+                    foreach ($url in $urls) {
+                        try {
+                            Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Downloading SQLite DLL from $url (Attempt $($retryCount + 1) of $MaxRetries)" -ForegroundColor Cyan
+                            
+                            if ($url -like "*.zip") {
+                                # For ZIP files
+                                $zipPath = Join-Path -Path $env:TEMP -ChildPath "sqlite_temp.zip"
+                                $extractPath = Join-Path -Path $env:TEMP -ChildPath "sqlite_extract"
+                                
+                                # Download ZIP
+                                Invoke-WebRequest -Uri $url -OutFile $zipPath -ErrorAction Stop
+                                
+                                # Create extraction directory if it doesn't exist
+                                if (-not (Test-Path $extractPath)) {
+                                    New-Item -Path $extractPath -ItemType Directory -Force | Out-Null
+                                }
+                                
+                                # Extract ZIP
+                                Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force -ErrorAction Stop
+                                
+                                # Find SQLite DLL in extracted files
+                                $extractedDll = Get-ChildItem -Path $extractPath -Recurse -Filter "*.dll" | 
+                                               Where-Object { $_.Name -like "*sqlite*" } | 
+                                               Select-Object -First 1
+                                
+                                if ($extractedDll) {
+                                    # Copy to final location
+                                    Copy-Item -Path $extractedDll.FullName -Destination $downloadPath -Force
+                                    
+                                    # Clean up
+                                    Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue
+                                    Remove-Item -Path $extractPath -Recurse -Force -ErrorAction SilentlyContinue
+                                    
+                                    $downloadSuccess = $true
+                                    Write-BrowserLog "Successfully downloaded and extracted SQLite DLL" "Success"
+                                    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Successfully downloaded and extracted SQLite DLL to $downloadPath" -ForegroundColor Green
+                                    return $downloadPath
+                                }
+                            }
+                            else {
+                                # For direct DLL download
+                                Invoke-WebRequest -Uri $url -OutFile $downloadPath -ErrorAction Stop
+                                $downloadSuccess = $true
+                                Write-BrowserLog "Successfully downloaded SQLite DLL" "Success"
+                                Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Successfully downloaded SQLite DLL to $downloadPath" -ForegroundColor Green
+                                return $downloadPath
+                            }
+                        }
+                        catch {
+                            Write-BrowserLog "Failed to download SQLite DLL from ${url}: $_" "Warning"
+                            Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Failed to download SQLite DLL from ${url}: $_" -ForegroundColor Red
+                            # Continue to next URL
+                        }
                     }
                     
-                    [PSCustomObject]@{
-                        URL        = $_.URL
-                        Title      = if ([string]::IsNullOrEmpty($_.Title)) { "No Title" } else { $_.Title }
-                        VisitCount = $_.VisitCount
+                    $retryCount++
+                    if ($retryCount -lt $MaxRetries) {
+                        $delayTime = $RetryDelaySeconds * $retryCount
+                        Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Waiting $delayTime seconds before retry..." -ForegroundColor Yellow
+                        Start-Sleep -Seconds $delayTime
+                    }
+                }
+                
+                # If all download attempts failed
+                if (-not $downloadSuccess) {
+                    Write-BrowserLog "All attempts to download SQLite DLL failed" "Error"
+                    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: All attempts to download SQLite DLL failed" -ForegroundColor Red
+                    return $null
+                }
+            }
+            
+            # Function to verify SQLite DLL functionality
+            function Test-SqliteDll {
+                param (
+                    [Parameter(Mandatory = $true)]
+                    [string]$DllPath
+                )
+                
+                Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Verifying SQLite DLL functionality at $DllPath" -ForegroundColor Cyan
+                
+                try {
+                    # Try to load the assembly
+                    Add-Type -Path $DllPath -ErrorAction Stop
+                    
+                    # Create a test database in memory to verify functionality
+                    $connectionString = "Data Source=:memory:;Version=3;"
+                    $connection = New-Object System.Data.SQLite.SQLiteConnection($connectionString)
+                    $connection.Open()
+                    
+                    # Create a test table and insert data
+                    $command = $connection.CreateCommand()
+                    $command.CommandText = "CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT);
+                                          INSERT INTO test (value) VALUES ('test');"
+                    $command.ExecuteNonQuery() | Out-Null
+                    
+                    # Query the test data
+                    $command.CommandText = "SELECT * FROM test;"
+                    $reader = $command.ExecuteReader()
+                    $result = $reader.Read()
+                    $connection.Close()
+                    
+                    Write-BrowserLog "SQLite DLL functionality verified successfully" "Success"
+                    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: SQLite DLL functionality verified successfully" -ForegroundColor Green
+                    return $true
+                }
+                catch {
+                    Write-BrowserLog "SQLite DLL verification failed: $_" "Warning"
+                    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: SQLite DLL verification failed: $_" -ForegroundColor Red
+                    return $false
+                }
+            }
+            
+            # Find or download the SQLite DLL
+            $dllPath = Get-SqliteDll -MaxRetries 3 -RetryDelaySeconds 2
+            $dllFunctional = $false
+            
+            if ($dllPath -and (Test-Path $dllPath)) {
+                # Verify DLL functionality
+                $dllFunctional = Test-SqliteDll -DllPath $dllPath
+            }
+            
+            # If DLL not found or not functional, return empty results
+            if (-not $dllFunctional) {
+                Write-BrowserLog "Could not find or verify a working SQLite DLL. Returning empty results." "Warning"
+                Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] SQLITE: Could not find or verify a working SQLite DLL. Returning empty results." -ForegroundColor Red
+                
+                if (Test-Path -Path $tempDbPath) {
+                    Remove-Item -Path $tempDbPath -Force -ErrorAction SilentlyContinue
+                }
+                
+                return $results
+            }
+            try {
+                $connectionString = "Data Source=$tempDbPath;Version=3;Read Only=True;"
+                $connection = New-Object System.Data.SQLite.SQLiteConnection($connectionString)
+                $connection.Open()
+                $command = $connection.CreateCommand()
+                $command.CommandText = @"
+                    SELECT 
+                        urls.url as URL,
+                        urls.title as Title,
+                        urls.visit_count as VisitCount,
+                        MAX(visits.visit_time) as LastVisitTime
+                    FROM urls
+                    LEFT JOIN visits ON urls.id = visits.url
+                    GROUP BY urls.url
+                    ORDER BY LastVisitTime DESC
+                    LIMIT $MaxEntries;
+"@
+                $reader = $command.ExecuteReader()
+                $dataTable = New-Object System.Data.DataTable
+                $dataTable.Load($reader)
+                foreach ($row in $dataTable.Rows) {
+                    $lastVisitTime = if ($row["LastVisitTime"]) {
+                        ConvertFrom-WebKitTimestamp -WebkitTimestamp ([Int64]$row["LastVisitTime"])
+                    } else {
+                        Get-Date
+                    }
+                    $results += [PSCustomObject]@{
+                        URL        = $row["URL"]
+                        Title      = if ([string]::IsNullOrEmpty($row["Title"])) { "No Title" } else { $row["Title"] }
+                        VisitCount = $row["VisitCount"]
                         LastVisit  = $lastVisitTime.ToString("yyyy-MM-dd HH:mm:ss")
                     }
                 }
-                
-                # If we got results, return them
-                if ($results.Count -gt 0) {
-                    Write-DFIRLog "Successfully retrieved $($results.Count) history entries using PSSQLite module" "Info"
-                    Remove-FileWithRetry -Path $tempDbPath
-                    return $results
-                }
-                else {
-                    Write-DFIRLog "PSSQLite query returned no results, trying fallback method" "Warning"
-                }
-            }
-            catch {
-                Write-DFIRLog "Error using PSSQLite module: $_" "Warning"
-                # Continue to fallback method
-            }
-        }
-        else {
-            Write-DFIRLog "PSSQLite module not available, attempting to install" "Info"
-            
-            # Try to install the module first
-            if (Install-PSSQLiteWithVerification -Force) {
-                try {
-                    Write-DFIRLog "Installed PSSQLite module, attempting to use it" "Info"
-                    $methodsAttempted += "PSSQLite Module (Freshly Installed)"
-                    
-                    $moduleResults = Invoke-SqliteQuery -DataSource $tempDbPath -Query $query -ErrorAction Stop
-                    
-                    $results = $moduleResults | ForEach-Object {
-                        $lastVisitTime = if ($_.LastVisitTime) {
-                            ConvertFrom-WebKitTimestamp -WebkitTimestamp $_.LastVisitTime
-                        }
-                        else {
-                            Get-Date
-                        }
-                        
-                        [PSCustomObject]@{
-                            URL        = $_.URL
-                            Title      = if ([string]::IsNullOrEmpty($_.Title)) { "No Title" } else { $_.Title }
-                            VisitCount = $_.VisitCount
-                            LastVisit  = $lastVisitTime.ToString("yyyy-MM-dd HH:mm:ss")
-                        }
-                    }
-                    
-                    # If we got results, return them
-                    if ($results.Count -gt 0) {
-                        Write-DFIRLog "Successfully retrieved $($results.Count) history entries using freshly installed PSSQLite module" "Info"
-                        Remove-FileWithRetry -Path $tempDbPath
-                        return $results
-                    }
-                    else {
-                        Write-DFIRLog "PSSQLite query returned no results, trying fallback method" "Warning"
-                    }
-                }
-                catch {
-                    Write-DFIRLog "Error using freshly installed PSSQLite module: $_" "Warning"
-                    # Continue to fallback method
+                $connection.Close()
+            } catch {
+                Write-DFIRLog "Error using .NET SQLite: $_" "Warning"
+                Write-DFIRLog "Attempting fallback to system tools for database access" "Info"
+                $dbInfo = Get-Item $DatabasePath
+                $results += [PSCustomObject]@{
+                    URL        = "chrome://history or edge://history"
+                    Title      = "Browser History (Access via browser interface)"
+                    VisitCount = 1
+                    LastVisit  = $dbInfo.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss")
                 }
             }
-            else {
-                Write-DFIRLog "Failed to install PSSQLite module, trying fallback method" "Warning"
-            }
         }
-        
-        # Method 2: Try to use .NET SQLite directly using fallback DLL
-        $methodsAttempted += ".NET SQLite"
-        Write-DFIRLog "Attempting to use .NET SQLite directly" "Info"
-        
-        $sqliteDllPath = Ensure-SQLiteDotNetAvailable
-        
-        if ($sqliteDllPath) {
-            try {
-                # If we got a string instead of a full path, it's a special case
-                if ($sqliteDllPath -eq ".NET" -or $sqliteDllPath -eq "PS") {
-                    # Using built-in .NET capabilities
-                    Write-DFIRLog "Using built-in .NET SQLite capabilities" "Info"
-                    
-                    try {
-                        # Try to use built-in method
-                        $dbInfo = Get-Item $DatabasePath
-                        
-                        # Return minimal info about the history database itself
-                        $results += [PSCustomObject]@{
-                            URL        = "chrome://history or edge://history"
-                            Title      = "Browser History (Access via browser interface)"
-                            VisitCount = 1
-                            LastVisit  = $dbInfo.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss")
-                        }
-                        
-                        Write-DFIRLog "Generated fallback history entry using file info" "Warning"
-                    }
-                    catch {
-                        Write-DFIRLog "Error using built-in .NET SQLite: $_" "Warning"
-                    }
-                }
-                else {
-                    # We have a specific DLL path to use
-                    try {
-                        # Try to load the DLL
-                        Add-Type -Path $sqliteDllPath -ErrorAction Stop
-                        
-                        # Use the loaded DLL to query database
-                        $connectionString = "Data Source=$tempDbPath;Version=3;Read Only=True;"
-                        $connection = New-Object System.Data.SQLite.SQLiteConnection($connectionString)
-                        $connection.Open()
-                        $command = $connection.CreateCommand()
-                        $command.CommandText = $query
-                        $reader = $command.ExecuteReader()
-                        $dataTable = New-Object System.Data.DataTable
-                        $dataTable.Load($reader)
-                        
-                        foreach ($row in $dataTable.Rows) {
-                            $lastVisitTime = if ($row["LastVisitTime"]) {
-                                ConvertFrom-WebKitTimestamp -WebkitTimestamp ([Int64]$row["LastVisitTime"])
-                            }
-                            else {
-                                Get-Date
-                            }
-                            
-                            $results += [PSCustomObject]@{
-                                URL        = $row["URL"]
-                                Title      = if ([string]::IsNullOrEmpty($row["Title"])) { "No Title" } else { $row["Title"] }
-                                VisitCount = $row["VisitCount"]
-                                LastVisit  = $lastVisitTime.ToString("yyyy-MM-dd HH:mm:ss")
-                            }
-                        }
-                        
-                        $connection.Close()
-                        
-                        # If we got results, return them
-                        if ($results.Count -gt 0) {
-                            Write-DFIRLog "Successfully retrieved $($results.Count) history entries using .NET SQLite DLL" "Info"
-                            Remove-FileWithRetry -Path $tempDbPath
-                            return $results
-                        }
-                    }
-                    catch {
-                        Write-DFIRLog "Error using .NET SQLite DLL: $_" "Warning"
-                    }
-                }
-            }
-            catch {
-                Write-DFIRLog "General error in .NET SQLite access: $_" "Warning"
-            }
+        if (Test-Path -Path $tempDbPath) {
+            Remove-Item -Path $tempDbPath -Force -ErrorAction SilentlyContinue
         }
-        
-        # Method 3: Last resort - use PowerShell with direct file access
-        $methodsAttempted += "PowerShell Direct"
-        Write-DFIRLog "Trying PowerShell direct access as last resort" "Info"
-        
-        try {
-            # Get file info as minimal metadata
-            $dbInfo = Get-Item $DatabasePath
-            
-            # Return minimal info about the history database itself
-            $results += [PSCustomObject]@{
-                URL        = "chrome://history or edge://history"
-                Title      = "Browser History (Access via browser interface)"
-                VisitCount = 1
-                LastVisit  = $dbInfo.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss")
-            }
-            
-            Write-DFIRLog "Generated fallback history entry using file info" "Warning"
-        }
-        catch {
-            Write-DFIRLog "Error using PowerShell direct access: $_" "Warning"
-        }
-        
-        # Clean up temp database copy regardless of success
-        if ($tempDbPath -and (Test-Path -Path $tempDbPath)) {
-            Remove-FileWithRetry -Path $tempDbPath
-        }
-        
-        # If we attempted multiple methods but still have no results, leave a diagnostic entry
-        if ($results.Count -eq 0 -and $methodsAttempted.Count -gt 0) {
-            $methodList = $methodsAttempted -join ", "
-            $results += [PSCustomObject]@{
-                URL        = "N/A"
-                Title      = "Browser history extraction failed for all methods: $methodList"
-                VisitCount = 0
-                LastVisit  = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-            }
-        }
-        
-        return $results
+    } catch {
+        Write-DFIRLog "Error querying browser history: $_" "Warning"
     }
-    
-    # Try to install module first with verification
-    if ($Force) {
-        Write-DFIRLog "Forcing reinstallation of PSSQLite module (if exists)" "Info"
-        Install-PSSQLiteWithVerification -Force | Out-Null
-    }
-    else {
-        # Check if module needs to be installed
-        if (-not (Test-PSSQLiteModule)) {
-            Write-DFIRLog "PSSQLite module not properly loaded, attempting to install/import" "Info"
-            Install-PSSQLiteWithVerification | Out-Null
-        }
-        else {
-            Write-DFIRLog "PSSQLite module verified as working" "Info"
-        }
-    }
-    
+    return $results
+}
+
     # For Chrome browser - get browser history from SQLite database
-    $chromeHistoryPath = "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\History"
-    # Check if PrimaryUserLocalAppData is defined (in case this is used within another script)
-    if (Get-Variable -Name PrimaryUserLocalAppData -ErrorAction SilentlyContinue) {
-        $chromeHistoryPath = "$PrimaryUserLocalAppData\Google\Chrome\User Data\Default\History"
-    }
-    
+    $chromeHistoryPath = "$PrimaryUserLocalAppData\Google\Chrome\User Data\Default\History"
     try {
         if (Test-Path -Path $chromeHistoryPath) {
             Write-DFIRLog "Extracting Chrome history..." "Info"
-            $browserHistory.Chrome = Get-SQLiteBrowserHistory -DatabasePath $chromeHistoryPath -MaxEntries $MaxEntries
+            $browserHistory.Chrome = Get-SQLiteBrowserHistory -DatabasePath $chromeHistoryPath
             Write-DFIRLog "Found $($browserHistory.Chrome.Count) Chrome history entries" "Info"
+        } else {
+            Write-DFIRLog "Chrome history database not found" "Warning"
         }
-        else {
-            Write-DFIRLog "Chrome history database not found at $chromeHistoryPath" "Warning"
-            
-            # Try to find Chrome in Program Files (might be a different install location)
-            $chromePaths = @(
-                "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\History",
-                "${env:ProgramFiles(x86)}\Google\Chrome\User Data\Default\History",
-                "$env:ProgramFiles\Google\Chrome\User Data\Default\History",
-                "$env:USERPROFILE\AppData\Local\Google\Chrome\User Data\Default\History"
-            )
-            
-            foreach ($path in $chromePaths) {
-                if (Test-Path -Path $path) {
-                    Write-DFIRLog "Found alternative Chrome history at $path" "Info"
-                    $browserHistory.Chrome = Get-SQLiteBrowserHistory -DatabasePath $path -MaxEntries $MaxEntries
-                    Write-DFIRLog "Found $($browserHistory.Chrome.Count) Chrome history entries from alternative location" "Info"
-                    break
-                }
-            }
-            
-            if ($browserHistory.Chrome.Count -eq 0) {
-                $browserHistory.Chrome = @([PSCustomObject]@{
-                        URL        = "N/A"
-                        Title      = "Chrome not installed or history not available"
-                        VisitCount = 0
-                        LastVisit  = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-                    })
-            }
-        }
-    }
-    catch {
+    } catch {
         Write-DFIRLog "Error collecting Chrome history: $_" "Warning"
-        $browserHistory.Chrome = @([PSCustomObject]@{
-                URL        = "Error"
-                Title      = "Failed to collect Chrome history: $_"
-                VisitCount = 0
-                LastVisit  = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-            })
     }
     
     # For Edge browser - get browser history from SQLite database
-    $edgeHistoryPath = "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\History"
-    # Check if PrimaryUserLocalAppData is defined (in case this is used within another script)
-    if (Get-Variable -Name PrimaryUserLocalAppData -ErrorAction SilentlyContinue) {
-        $edgeHistoryPath = "$PrimaryUserLocalAppData\Microsoft\Edge\User Data\Default\History"
-    }
-    
+    $edgeHistoryPath = "$PrimaryUserLocalAppData\Microsoft\Edge\User Data\Default\History"
     try {
         if (Test-Path -Path $edgeHistoryPath) {
             Write-DFIRLog "Extracting Edge history..." "Info"
-            $browserHistory.Edge = Get-SQLiteBrowserHistory -DatabasePath $edgeHistoryPath -MaxEntries $MaxEntries
+            $browserHistory.Edge = Get-SQLiteBrowserHistory -DatabasePath $edgeHistoryPath
             Write-DFIRLog "Found $($browserHistory.Edge.Count) Edge history entries" "Info"
+        } else {
+            Write-DFIRLog "Edge history database not found" "Warning"
         }
-        else {
-            Write-DFIRLog "Edge history database not found at $edgeHistoryPath" "Warning"
-            
-            # Try to find Edge in Program Files (might be a different install location)
-            $edgePaths = @(
-                "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\History",
-                "${env:ProgramFiles(x86)}\Microsoft\Edge\User Data\Default\History",
-                "$env:ProgramFiles\Microsoft\Edge\User Data\Default\History",
-                "$env:USERPROFILE\AppData\Local\Microsoft\Edge\User Data\Default\History"
-            )
-            
-            foreach ($path in $edgePaths) {
-                if (Test-Path -Path $path) {
-                    Write-DFIRLog "Found alternative Edge history at $path" "Info"
-                    $browserHistory.Edge = Get-SQLiteBrowserHistory -DatabasePath $path -MaxEntries $MaxEntries
-                    Write-DFIRLog "Found $($browserHistory.Edge.Count) Edge history entries from alternative location" "Info"
-                    break
-                }
-            }
-            
-            if ($browserHistory.Edge.Count -eq 0) {
-                $browserHistory.Edge = @([PSCustomObject]@{
-                        URL        = "N/A"
-                        Title      = "Edge not installed or history not available"
-                        VisitCount = 0
-                        LastVisit  = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-                    })
-            }
-        }
-    }
-    catch {
+    } catch {
         Write-DFIRLog "Error collecting Edge history: $_" "Warning"
-        $browserHistory.Edge = @([PSCustomObject]@{
-                URL        = "Error"
-                Title      = "Failed to collect Edge history: $_"
-                VisitCount = 0
-                LastVisit  = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-            })
     }
     
-    # Return the combined browser history
     return $browserHistory
 }
 
