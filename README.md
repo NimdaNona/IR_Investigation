@@ -52,7 +52,7 @@ The script collects and reports on:
 
 ### Basic Usage
 ```powershell
-.\DFIR_EDR_Deployment.ps1
+.\IR_Data_Collection.ps1
 ```
 This will run the script and save the report to the default location: `C:\Investigation\DFIR_Report_COMPUTERNAME_DATE-TIME.html`
 
@@ -76,15 +76,9 @@ The script automatically detects the primary user profile by:
 
 ### Browser History Analysis
 Browser history extraction handles locked database files and includes flexible fallback methods:
-- Uses PSSQLite module when available
+- Uses PSSQLite module, installs and imports if not available
 - Implements .NET SQLite access as a secondary method
 - Falls back to metadata analysis when direct database access isn't possible
-
-### Suspicious File Detection
-The script identifies potentially suspicious items:
-- Executable files in temp and download folders
-- Non-Microsoft scheduled tasks in system paths
-- Unusual autorun entries
 
 ## Report Navigation
 The generated HTML report features:
