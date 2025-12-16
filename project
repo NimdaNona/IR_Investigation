@@ -1,0 +1,715 @@
+  
+**Cloud Infrastructure IP Blocking Capability**
+
+Discovery & Scoping Document
+
+Cyber Incident Response Team
+
+Document Version: 1.0  
+Date: December 2024  
+Classification: Internal Use Only
+
+# **Document Control**
+
+| Document Owner | Cyber Incident Response Team |
+| :---- | :---- |
+| **Primary Author** | \[Name\] |
+| **Contributors** | \[IR Team Members\] |
+| **Discovery Period** | \[Week of Discovery\] |
+| **Status** | Discovery In Progress |
+
+## **Revision History**
+
+| Version | Date | Author | Description |
+| :---- | :---- | :---- | :---- |
+| 1.0 | \[Date\] | \[Name\] | Initial document creation |
+| 1.1 | \[Date\] | \[Name\] | Discovery findings added |
+
+# **1\. Executive Summary**
+
+This document defines the scope, objectives, and discovery framework for extending IP blocking capabilities to Regions Bank's cloud infrastructure. Currently, the Cyber Incident Response Team (CIRT) has established IP blocking automation for on-premises infrastructure through Palo Alto Networks firewalls via Splunk SOAR. However, a gap exists in our ability to perform equivalent blocking actions against cloud-hosted assets and services.
+
+The primary environments in scope include **Amazon Web Services (AWS)**, **Microsoft Azure**, and **GitHub Enterprise Cloud**. Additionally, this discovery will evaluate whether **Imperva WAF** can be leveraged as a unified edge protection layer for cloud assets.
+
+This document serves a dual purpose: first, to define the project and guide the discovery process throughout the designated week; and second, to serve as the final comprehensive report with all findings, analysis, and recommendations populated upon completion.
+
+**Expected Outcomes:** By the end of the discovery period, this document will contain a complete inventory of existing cloud security controls, identified integration points for SOAR automation, technical requirements for implementation, and prioritized recommendations for achieving cloud IP blocking capability.
+
+# **2\. Background & Problem Statement**
+
+## **2.1 Current Security Posture**
+
+The Cyber Incident Response Team maintains a mature IP blocking capability for on-premises infrastructure. When malicious IP addresses are identified during incident investigation, analysts can rapidly deploy blocks to prevent further malicious activity. This capability is operationalized through Splunk SOAR automation integrated with Palo Alto Networks firewalls.
+
+The on-premises blocking workflow has proven effective for the traditional data center environment, providing analysts with a reliable mechanism to contain threats and protect organizational assets during active incidents.
+
+## **2.2 The Capability Gap**
+
+As Regions Bank continues to adopt cloud services, a significant portion of the organization's attack surface now extends beyond the traditional network perimeter where current blocking controls are effective. Cloud-hosted applications, development platforms, and infrastructure do not benefit from the existing IP blocking automation.
+
+**This creates an operational gap:** when a malicious IP address is identified targeting cloud assets, incident responders currently lack an equivalent automated mechanism to deploy blocks. This inconsistency:
+
+* Extends response time for cloud-related incidents
+
+* Creates inconsistent security posture across hybrid infrastructure
+
+* Requires manual intervention for cloud blocking actions
+
+* Limits the effectiveness of coordinated incident response across environments
+
+## **2.3 Business Justification**
+
+Extending IP blocking capabilities to cloud infrastructure addresses an internal security gap identified by the Cyber Incident Response Team. Establishing this capability will enable consistent, rapid response to threats regardless of where organizational assets are hosted, supporting the overall security mission of protecting the organization's data, systems, and customers.
+
+# **3\. Project Scope & Objectives**
+
+## **3.1 In-Scope Environments**
+
+The following environments are within scope for discovery and potential integration:
+
+1. **Amazon Web Services (AWS)** – All AWS accounts and services where network-level blocking is applicable
+
+2. **Microsoft Azure** – All Azure subscriptions and services where network-level blocking is applicable
+
+3. **GitHub Enterprise Cloud** – Enterprise-managed repositories and access controls
+
+4. **Imperva WAF** – Evaluation of edge protection expansion to cloud assets
+
+## **3.2 Out of Scope**
+
+The following items are explicitly out of scope for this discovery effort:
+
+* **Internal/lateral movement blocking** – Focus is on external attack vector protection only
+
+* **Automated threat intelligence blocking** – Integration with OpenCTI for auto-blocking may be a future project
+
+* **Cloudflare configuration changes** – Current licensing limited to DDoS protection; expansion would require additional procurement
+
+* **Implementation/configuration changes** – This phase is discovery only; implementation follows separate change processes
+
+## **3.3 Discovery Objectives**
+
+By the conclusion of the discovery period, this document will contain:
+
+1. Complete inventory of existing security controls in each cloud environment
+
+2. Architecture documentation showing what protects what
+
+3. Identified integration points for Splunk SOAR automation
+
+4. Technical requirements including accounts, permissions, and API access needed
+
+5. Analysis of blocklist architecture options (unified vs. segmented)
+
+6. Identification of teams and stakeholders for implementation coordination
+
+7. Prioritized recommendations for achieving cloud IP blocking capability
+
+# **4\. Current State: On-Premises IP Blocking Capabilities**
+
+This section documents the existing IP blocking capabilities for on-premises infrastructure. Understanding the current implementation serves as the baseline for extending equivalent capabilities to cloud environments.
+
+## **4.1 On-Premises Architecture Overview**
+
+| Component | Details |
+| :---- | :---- |
+| **Firewall Platform** | Palo Alto Networks |
+| **WAF Platform** | Imperva (protecting majority of on-premises applications) |
+| **SOAR Platform** | Splunk SOAR (formerly Phantom) |
+| **Block Mechanism** | IP added to blocked IPs address group in Palo Alto; pre-configured firewall rule enforces block |
+| **Block TTL** | Approximately 90 days (auto-expiration) |
+| **Unblock Capability** | Separate SOAR playbook available for IP unblock |
+
+## **4.2 Current SOAR Workflow**
+
+### **Block IP Playbook**
+
+* **Trigger:** Analyst-initiated (manual execution)
+
+* **Input:** Analyst enters the malicious IP address and submits
+
+* **Action:** SOAR automation adds IP to the blocked IPs address group in Palo Alto
+
+* **Enforcement:** Pre-existing firewall rule automatically blocks traffic from/to addresses in the group
+
+* **Audit Trail:** Splunk SOAR maintains logs of who ran what playbook and when
+
+### **Unblock IP Playbook**
+
+* Separate playbook exists for removing IPs from the blocked group (false positive remediation)
+
+* Same analyst-initiated workflow
+
+## **4.3 Related Capabilities**
+
+### **Threat Intelligence (OpenCTI)**
+
+* Threat intelligence is managed and auto-ingested into OpenCTI platform
+
+* OpenCTI logs are forwarded to Splunk with dashboard for threat intel visibility
+
+* Currently no automated blocking based on threat intel feeds (analyst review required)
+
+* *Note: Automated threat intel blocking may be a future project but is out of scope for this effort*
+
+### **Cloudflare**
+
+* Currently configured for DDoS protection only
+
+* IP blocking capability exists within Cloudflare but would require additional licensing
+
+* Out of scope for this discovery due to procurement complexity
+
+# **5\. Discovery Framework & Methodology**
+
+## **5.1 Discovery Approach**
+
+The discovery process will systematically investigate each in-scope environment to answer the following core questions:
+
+* **What security controls currently exist?** (Firewalls, WAFs, Security Groups, NACLs, etc.)
+
+* **What does each control protect?** (Architecture mapping)
+
+* **Who manages/administers each control?** (Ownership and points of contact)
+
+* **What is required for SOAR integration?** (Accounts, permissions, APIs, apps)
+
+## **5.2 Information Sources**
+
+Discovery information will be gathered from the following sources:
+
+| Source Type | Examples |
+| :---- | :---- |
+| Team Consultations | Cloud Center of Excellence (CCOE), IAM Team, Network Security, Application Security |
+| Documentation Review | Architecture diagrams, security design documents, runbooks, existing SOPs |
+| Platform Inspection | AWS Console, Azure Portal, GitHub Enterprise settings (as access permits) |
+| SOAR Platform Review | Existing Splunk SOAR apps, available integrations, current playbook architecture |
+
+## **5.3 Key Contacts Identified**
+
+*Document key contacts identified during discovery for implementation coordination:*
+
+| Team | Contact | Responsibility |
+| :---- | :---- | :---- |
+| CCOE | *\[To be completed during discovery\]* | AWS/Azure administration |
+| IAM Team | *\[To be completed during discovery\]* | Permissions and access management |
+| Network Security | *\[To be completed during discovery\]* | Imperva WAF, Palo Alto |
+| GitHub Admins | *\[To be completed during discovery\]* | GitHub Enterprise Cloud administration |
+
+# **6\. AWS Environment – Discovery Area**
+
+## **6.1 Discovery Questions**
+
+The following questions must be answered during discovery:
+
+### **Architecture & Inventory**
+
+1. What is the AWS Organizations structure? Is there a centralized Security or Shared Services account?
+
+2. What security controls are currently deployed? (AWS WAF, Security Groups, NACLs, AWS Network Firewall, third-party appliances)
+
+3. Is AWS WAF in use? If so, which resources are protected (CloudFront, ALB, API Gateway)?
+
+4. Is AWS Network Firewall deployed? What VPCs/traffic does it inspect?
+
+5. Are there any third-party security appliances deployed in AWS (e.g., Palo Alto VM-Series, Fortinet)?
+
+### **Ownership & Access**
+
+6. Who owns/administers the AWS security controls? (CCOE, Network Security, DevOps, other)
+
+7. What account(s) would SOAR need to connect to for performing IP blocking automation?
+
+8. What IAM permissions would be required for the SOAR service account?
+
+9. Is there an existing process for security teams to request AWS IAM roles/permissions?
+
+## **6.2 Technical Considerations**
+
+The following AWS services can support IP blocking and should be evaluated during discovery:
+
+| AWS Service | Blocking Capability | Scope/Considerations |
+| :---- | :---- | :---- |
+| **AWS WAF** | IP Sets with block rules; can be centrally managed | Protects CloudFront, ALB, API Gateway; Layer 7 |
+| **Security Groups** | Allow-list only; cannot block specific IPs | Instance-level; stateful; limited for blocking use case |
+| **NACLs** | Deny rules supported; can block specific IPs/CIDRs | Subnet-level; stateless; 20 rules per NACL limit |
+| **Network Firewall** | Stateful rules with IP blocking; centralized management | VPC-level; east-west and north-south traffic |
+
+### **Splunk SOAR Integration**
+
+Splunk SOAR has existing apps that can integrate with AWS services. Evaluate during discovery:
+
+1. **AWS WAF App** – Can manage IP Sets and WAF rules programmatically
+
+2. **AWS EC2 App** – Can manage Security Groups and NACLs
+
+3. **AWS Network Firewall** – May require custom integration or API calls
+
+4. **Requirements:** IAM credentials (access key/secret or role assumption), appropriate IAM policy permissions
+
+## **6.3 AWS Discovery Findings**
+
+*Document findings from discovery activities below:*
+
+### **Current Security Controls Inventory**
+
+*\[To be completed during discovery\]*
+
+### **Account Structure & Ownership**
+
+*\[To be completed during discovery\]*
+
+### **Recommended Integration Approach**
+
+*\[To be completed during discovery\]*
+
+### **Required Permissions & Access**
+
+*\[To be completed during discovery\]*
+
+# **7\. Azure Environment – Discovery Area**
+
+## **7.1 Discovery Questions**
+
+The following questions must be answered during discovery:
+
+### **Architecture & Inventory**
+
+1. What is the Azure subscription structure? Is there a centralized security subscription or landing zone architecture?
+
+2. What security controls are currently deployed? (Azure Firewall, NSGs, Azure WAF, Azure Front Door, third-party appliances)
+
+3. Is Azure Firewall deployed? What VNets/traffic does it protect?
+
+4. Is Azure WAF or Azure Front Door in use? What applications are protected?
+
+5. Are there any third-party security appliances deployed in Azure?
+
+### **Ownership & Access**
+
+6. Who owns/administers the Azure security controls? (CCOE, Network Security, DevOps, other)
+
+7. What subscription(s) would SOAR need to connect to for performing IP blocking automation?
+
+8. What Azure RBAC permissions would be required for the SOAR service principal?
+
+9. Is there an existing process for security teams to request Azure service principals/permissions?
+
+## **7.2 Technical Considerations**
+
+The following Azure services can support IP blocking and should be evaluated during discovery:
+
+| Azure Service | Blocking Capability | Scope/Considerations |
+| :---- | :---- | :---- |
+| **Azure Firewall** | Network rules with IP deny; centrally managed via policy | VNet-level; Layer 3/4 filtering; Premium SKU for IDPS |
+| **NSGs** | Deny rules supported; can block specific IPs/CIDRs | Subnet or NIC level; stateful; 1000 rules per NSG |
+| **Azure WAF** | Custom rules with IP match conditions and block action | App Gateway or Front Door; Layer 7; web apps only |
+| **Azure Front Door** | WAF policy with IP restrictions; global edge protection | Global load balancer; CDN; Layer 7 protection |
+
+### **Splunk SOAR Integration**
+
+Splunk SOAR has existing apps that can integrate with Azure services. Evaluate during discovery:
+
+1. **Azure App** – General Azure resource management capabilities
+
+2. **Azure Network Security Group App** – Manage NSG rules programmatically
+
+3. **Azure Firewall/WAF** – May require custom integration via Azure REST API
+
+4. **Requirements:** Service principal (App Registration) with appropriate RBAC roles, tenant ID, client credentials
+
+## **7.3 Azure Discovery Findings**
+
+*Document findings from discovery activities below:*
+
+### **Current Security Controls Inventory**
+
+*\[To be completed during discovery\]*
+
+### **Subscription Structure & Ownership**
+
+*\[To be completed during discovery\]*
+
+### **Recommended Integration Approach**
+
+*\[To be completed during discovery\]*
+
+### **Required Permissions & Access**
+
+*\[To be completed during discovery\]*
+
+# **8\. GitHub Enterprise Cloud – Discovery Area**
+
+## **8.1 Security Model Overview**
+
+**Important:** GitHub Enterprise Cloud operates differently from traditional network infrastructure. Understanding the available security controls is essential before determining the appropriate approach.
+
+### **How GitHub Security Differs from Network Blocking**
+
+GitHub Enterprise Cloud does not have traditional firewall-style IP blocking capabilities. Instead, it offers:
+
+1. **IP Allow Lists (Allowlist Approach)** – Enterprise owners can configure IP allow lists to restrict access to only specified IP ranges. This is the inverse of blocking—rather than blocking bad IPs, you only permit known-good corporate IP ranges.
+
+2. **Okta/SSO Network Zones** – Since GitHub access flows through Okta (based on current access model via SailPoint/Okta My Apps), IP-based restrictions could potentially be enforced at the Okta layer through network zone policies. This would control authentication before GitHub is even reached.
+
+3. **Audit Logging & Detection** – GitHub provides extensive audit logs that can be forwarded to Splunk for monitoring and alerting. This enables detection and response rather than prevention.
+
+4. **Deploy Keys & Personal Access Token Management** – Revoking compromised credentials is the primary response mechanism for account-based threats.
+
+## **8.2 Discovery Questions**
+
+The following questions must be answered during discovery:
+
+### **Current Access Model**
+
+1. How is GitHub Enterprise Cloud access currently authenticated? (Okta SAML SSO confirmed – verify configuration details)
+
+2. Is there currently an IP allow list configured for the GitHub Enterprise? If not, would this be acceptable to implement?
+
+3. Are Okta network zone policies currently in use? Could they be leveraged for GitHub access restrictions?
+
+4. Are GitHub audit logs currently being forwarded to Splunk?
+
+### **Threat Scenarios to Address**
+
+5. What specific threat scenarios is the team trying to address for GitHub? (e.g., blocking known malicious IPs from accessing repos, preventing brute force authentication, restricting access to corporate IPs only)
+
+6. Are there compliance or policy requirements driving GitHub access controls?
+
+7. What is the appropriate balance between security controls and developer productivity?
+
+### **Administration & Access**
+
+8. Who administers the GitHub Enterprise Cloud environment?
+
+9. What permissions would be required for SOAR to interact with GitHub settings (if automation is applicable)?
+
+10. Is there an existing process for modifying GitHub Enterprise security settings?
+
+## **8.3 Technical Considerations**
+
+### **GitHub Enterprise Cloud Capabilities**
+
+| Capability | Details |
+| :---- | :---- |
+| **IP Allow Lists** | Enterprise-level setting restricting access to specified CIDR ranges; can be managed via API |
+| **Audit Streaming** | Audit events can be streamed to SIEM (Splunk) for monitoring authentication attempts, repo access, etc. |
+| **SAML SSO** | Okta integration provides authentication control point; Okta network zones can restrict by IP |
+| **API Access** | GraphQL and REST APIs available; PAT or GitHub App authentication required |
+
+### **Splunk SOAR Integration Considerations**
+
+* **GitHub App** – Splunk SOAR may have a GitHub app; evaluate capabilities for enterprise settings management
+
+* **Okta App** – If network zones are used, SOAR could potentially modify Okta policies
+
+* **Custom Integration** – GitHub Enterprise API calls may require custom playbook actions
+
+## **8.4 GitHub Discovery Findings**
+
+*Document findings from discovery activities below:*
+
+### **Current Access Model & Controls**
+
+*\[To be completed during discovery\]*
+
+### **Identified Threat Scenarios**
+
+*\[To be completed during discovery\]*
+
+### **Recommended Security Approach**
+
+*\[To be completed during discovery\]*
+
+### **Required Permissions & Access**
+
+*\[To be completed during discovery\]*
+
+# **9\. Imperva – Edge Protection Expansion Consideration**
+
+## **9.1 Current State**
+
+Imperva WAF is currently deployed as the primary WAF protecting the majority of on-premises applications. This discovery will evaluate whether Imperva can be leveraged as a unified edge protection layer that extends to cloud-hosted assets, potentially simplifying the blocking architecture.
+
+## **9.2 Discovery Questions**
+
+1. What is the current scope of Imperva WAF protection? (On-premises only, or does it already cover some cloud assets?)
+
+2. Can Imperva be configured to provide edge protection for AWS and Azure hosted applications?
+
+3. What would be required to extend Imperva coverage? (Configuration changes, licensing, architecture changes)
+
+4. Does Imperva have IP blocking/blacklisting capabilities? How are they currently used?
+
+5. Is there an existing Splunk SOAR integration with Imperva? If not, what integration options exist?
+
+6. Who manages the Imperva configuration? What is the process for making changes?
+
+7. Would the Network Security team support using Imperva as a unified blocking point for cloud assets?
+
+## **9.3 Potential Benefits**
+
+If Imperva can be leveraged for cloud edge protection, potential benefits include:
+
+* **Unified blocking point** – Single location for IP blocks affecting all protected assets
+
+* **Simplified SOAR integration** – One integration instead of multiple cloud-native controls
+
+* **Consistent policy enforcement** – Same blocking rules apply across on-premises and cloud
+
+* **Existing operational knowledge** – Team already familiar with Imperva management
+
+## **9.4 Imperva Discovery Findings**
+
+*Document findings from discovery activities below:*
+
+### **Current Scope & Capabilities**
+
+*\[To be completed during discovery\]*
+
+### **Expansion Requirements**
+
+*\[To be completed during discovery\]*
+
+### **Integration Options**
+
+*\[To be completed during discovery\]*
+
+### **Feasibility Assessment**
+
+*\[To be completed during discovery\]*
+
+# **10\. Architecture Considerations**
+
+## **10.1 Blocklist Strategy Options**
+
+A key architectural decision is how to manage IP blocklists across multiple environments. Three approaches are presented below for analysis.
+
+### **Option A: Unified Blocklist**
+
+**Description:** A single blocklist is maintained, and when an analyst blocks an IP, it is automatically propagated to all environments (on-premises, AWS, Azure, and applicable controls like GitHub/Imperva).
+
+**Advantages:**
+
+1. Simplest operational model – one action blocks everywhere
+
+2. Consistent security posture across all environments
+
+3. Reduced risk of gaps in coverage
+
+**Disadvantages:**
+
+* Requires all integrations to be built and maintained simultaneously
+
+* Single point of failure could impact all environments
+
+* May block IPs in environments where they are not actually a threat
+
+### **Option B: Segmented Blocklists**
+
+**Description:** Separate blocklists are maintained for each environment. Analysts choose which environment(s) to block in based on the incident context.
+
+**Advantages:**
+
+1. More granular control over where blocks are applied
+
+2. Can implement incrementally (one environment at a time)
+
+3. Failure in one environment doesn't impact others
+
+**Disadvantages:**
+
+* More complex operational workflow for analysts
+
+* Risk of inconsistent blocking (analyst may forget an environment)
+
+* More playbooks/automations to maintain
+
+### **Option C: Hybrid Approach**
+
+**Description:** Default behavior is unified (block everywhere), but analysts have the option to target specific environments when needed.
+
+**Advantages:**
+
+1. Best of both approaches – simple default with flexibility when needed
+
+2. Supports varied incident response scenarios
+
+3. Can start unified and add granularity as needed
+
+**Disadvantages:**
+
+* Most complex to implement
+
+* Requires well-designed playbook logic
+
+* Training required for analysts to understand options
+
+## **10.2 Architecture Analysis**
+
+*To be completed after discovery findings are gathered:*
+
+*\[To be completed during discovery\]*
+
+## **10.3 Integration Topology Considerations**
+
+Based on discovery findings, document how the SOAR integration architecture should be designed:
+
+* **Where should blocks occur?** (Edge via Imperva, cloud-native controls, or both)
+
+* **What is the propagation approach?** (Sequential, parallel, or event-driven)
+
+* **How will consistency be maintained?** (Central blocklist reference, synchronization jobs, etc.)
+
+* **What monitoring will validate blocks are in place?** (Verification queries, dashboards, alerting)
+
+*\[To be completed during discovery\]*
+
+# **11\. Technical Requirements Summary**
+
+## **11.1 Integration Requirements Matrix**
+
+*Populate this matrix as discovery findings are gathered:*
+
+| Environment | Control | Integration Method | Permissions Required | SOAR App |
+| :---- | :---- | :---- | :---- | :---- |
+| On-Prem | Palo Alto | Existing integration | Already configured | Palo Alto Networks App |
+| AWS | *\[To be completed during discovery\]* | *\[To be completed during discovery\]* | *\[To be completed during discovery\]* | *\[To be completed during discovery\]* |
+| Azure | *\[To be completed during discovery\]* | *\[To be completed during discovery\]* | *\[To be completed during discovery\]* | *\[To be completed during discovery\]* |
+| GitHub | *\[To be completed during discovery\]* | *\[To be completed during discovery\]* | *\[To be completed during discovery\]* | *\[To be completed during discovery\]* |
+| Imperva | *\[To be completed during discovery\]* | *\[To be completed during discovery\]* | *\[To be completed during discovery\]* | *\[To be completed during discovery\]* |
+
+## **11.2 Access Requests Required**
+
+*Document specific access requests that will need to be submitted:*
+
+*\[To be completed during discovery\]*
+
+## **11.3 Dependencies Identified**
+
+*Document dependencies that may impact implementation timeline:*
+
+*\[To be completed during discovery\]*
+
+# **12\. Implementation Considerations**
+
+*This section to be completed after discovery findings are gathered.*
+
+## **12.1 Phasing/Prioritization**
+
+Based on discovery findings, document the recommended implementation sequence:
+
+*\[To be completed during discovery\]*
+
+## **12.2 Teams to Coordinate With**
+
+Document teams that will need to be involved in implementation:
+
+*\[To be completed during discovery\]*
+
+## **12.3 Change Management Considerations**
+
+Each team follows their own change management process. Implementation will require coordination with:
+
+*\[To be completed during discovery\]*
+
+## **12.4 Estimated Level of Effort**
+
+Based on discovery findings, provide rough estimates for implementation work:
+
+*\[To be completed during discovery\]*
+
+# **13\. Recommendations**
+
+*This section to be completed after discovery is finalized.*
+
+## **13.1 Summary of Findings**
+
+*\[To be completed during discovery\]*
+
+## **13.2 Recommended Approach**
+
+*\[To be completed during discovery\]*
+
+## **13.3 Prioritized Next Steps**
+
+Based on discovery findings, the following next steps are recommended:
+
+1. 
+
+## **13.4 Open Items & Questions**
+
+*Document any items requiring further investigation or decisions:*
+
+*\[To be completed during discovery\]*
+
+# **Appendix A: Discovery Checklist**
+
+Use this checklist to track discovery progress:
+
+| Discovery Item | Status | Owner |
+| :---- | :---- | :---- |
+| **AWS Environment** |  |  |
+|    Identify AWS Organizations structure | ☐ Not Started |  |
+|    Inventory security controls (WAF, Network Firewall, etc.) | ☐ Not Started |  |
+|    Identify CCOE contacts and ownership model | ☐ Not Started |  |
+|    Document required IAM permissions | ☐ Not Started |  |
+|    Evaluate Splunk SOAR AWS apps | ☐ Not Started |  |
+| **Azure Environment** |  |  |
+|    Identify subscription structure | ☐ Not Started |  |
+|    Inventory security controls (Firewall, NSGs, WAF, etc.) | ☐ Not Started |  |
+|    Identify CCOE contacts and ownership model | ☐ Not Started |  |
+|    Document required RBAC permissions | ☐ Not Started |  |
+|    Evaluate Splunk SOAR Azure apps | ☐ Not Started |  |
+| **GitHub Enterprise Cloud** |  |  |
+|    Document current access model (Okta/SSO configuration) | ☐ Not Started |  |
+|    Determine if IP allow lists are in use or feasible | ☐ Not Started |  |
+|    Evaluate Okta network zone options | ☐ Not Started |  |
+|    Identify GitHub admin contacts | ☐ Not Started |  |
+| **Imperva** |  |  |
+|    Document current scope of protection | ☐ Not Started |  |
+|    Evaluate cloud extension feasibility | ☐ Not Started |  |
+|    Identify Splunk SOAR integration options | ☐ Not Started |  |
+|    Identify Network Security team contacts | ☐ Not Started |  |
+
+# **Appendix B: Reference Documentation**
+
+Links to relevant documentation gathered during discovery:
+
+## **AWS Resources**
+
+* AWS WAF Developer Guide: https://docs.aws.amazon.com/waf/
+
+* AWS Network Firewall: https://docs.aws.amazon.com/network-firewall/
+
+* Internal AWS architecture documentation: \[Link to be added\]
+
+## **Azure Resources**
+
+* Azure Firewall Documentation: https://docs.microsoft.com/azure/firewall/
+
+* Azure WAF Documentation: https://docs.microsoft.com/azure/web-application-firewall/
+
+* Internal Azure architecture documentation: \[Link to be added\]
+
+## **GitHub Enterprise Cloud**
+
+* GitHub Enterprise IP Allow Lists: https://docs.github.com/enterprise-cloud@latest/admin/policies/enforcing-policies-for-your-enterprise/enforcing-policies-for-security-settings-in-your-enterprise
+
+* GitHub Audit Log Streaming: https://docs.github.com/enterprise-cloud@latest/admin/monitoring-activity-in-your-enterprise/reviewing-audit-logs-for-your-enterprise/streaming-the-audit-log-for-your-enterprise
+
+## **Splunk SOAR**
+
+* Splunk SOAR Apps: https://splunkbase.splunk.com/apps?product=soar
+
+* Internal SOAR documentation: \[Link to be added\]
+
+# **Appendix C: Working Notes**
+
+*Use this section for detailed notes during discovery meetings and research:*
+
+*\[To be completed during discovery\]*
+
+*\[To be completed during discovery\]*
+
+*\[To be completed during discovery\]*
