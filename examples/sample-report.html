@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DFIR Analysis Report</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            width: 95%;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        header {
+            background-color: #333;
+            color: #fff;
+            padding: 20px;
+            text-align: center;
+        }
+        .section {
+            margin-bottom: 30px;
+            background-color: #fff;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .section-header {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            font-size: 1.2em;
+            margin: 0;
+        }
+        .section-content {
+            padding: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .tab {
+            overflow: hidden;
+            border: 1px solid #ccc;
+            background-color: #f1f1f1;
+        }
+        .tab button {
+            background-color: inherit;
+            float: left;
+            border: none;
+            outline: none;
+            cursor: pointer;
+            padding: 14px 16px;
+            transition: 0.3s;
+            font-size: 17px;
+        }
+        .tab button:hover {
+            background-color: #ddd;
+        }
+        .tab button.active {
+            background-color: #ccc;
+        }
+        .tabcontent {
+            display: none;
+            padding: 6px 12px;
+            border: 1px solid #ccc;
+            border-top: none;
+        }
+        .warning {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 10px;
+            margin-bottom: 5px;
+        }
+        .danger {
+            background-color: #f8d7da;
+            border-left: 4px solid #dc3545;
+            padding: 10px;
+            margin-bottom: 5px;
+        }
+
+        /* Browser History Table Styles */
+        .title-cell {
+            max-width: 350px;
+            position: relative;
+            overflow: hidden;
+        }
+        .title-container {
+            width: 100%;
+            overflow-x: auto;
+            white-space: nowrap;
+            padding-bottom: 5px;
+        }
+        .url-cell {
+            max-width: 400px;
+            position: relative;
+            overflow: hidden;
+        }
+        .url-container {
+            width: 100%;
+            overflow-x: auto;
+            white-space: nowrap;
+            padding-bottom: 5px;
+        }
+        /* Make browser history tables more readable */
+        #chrome_history table, #edge_history table {
+            table-layout: fixed;
+        }
+        #chrome_history th:first-child, #edge_history th:first-child {
+            width: 150px; /* Date column width */
+        }
+        #chrome_history th:nth-child(2), #edge_history th:nth-child(2) {
+            width: 250px; /* Title column width - increased from 200px */
+        }
+        #chrome_history th:last-child, #edge_history th:last-child {
+            width: 80px; /* Visit count column width */
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Incident Response Data Collection Report</h1>
+        <p>Generated: 2026-04-17 09:15:00</p>
+    </header>
+    <div class="container">        <div class="section">
+            <h2 class="section-header">System Information</h2>
+            <div class="section-content">
+                <div class="tab">
+                    <button class="tablinks" onclick="openTab(event, 'sysinfo')">Basic Info</button>
+                    <button class="tablinks" onclick="openTab(event, 'netadapters')">Network Adapters</button>
+                    <button class="tablinks" onclick="openTab(event, 'drivers')">Drivers</button>
+                    <button class="tablinks" onclick="openTab(event, 'software')">Installed Software</button>
+                    <button class="tablinks" onclick="openTab(event, 'updates')">Windows Updates</button>
+                    <button class="tablinks" onclick="openTab(event, 'usbdevices')">USB Devices</button>
+                </div>
+
+                <div id="sysinfo" class="tabcontent">
+                    <h3>System Information</h3>
+                    <table>
+                    <tr><td><strong>Computer Name:</strong></td><td>DEMO-WS-017 (synthetic sample)</td></tr>
+                    <tr><td><strong>Operating System:</strong></td><td>Windows 11 Enterprise 10.0.26100</td></tr>
+                    <tr><td><strong>OS Installation Date:</strong></td><td>2026-02-02 09:00</td></tr>
+                    <tr><td><strong>Manufacturer:</strong></td><td>Example Systems</td></tr>
+                    <tr><td><strong>Model:</strong></td><td>Training workstation</td></tr>
+                    <tr><td><strong>BIOS Version:</strong></td><td>Example UEFI 1.0</td></tr>
+                    <tr><td><strong>Processor:</strong></td><td>Example virtual CPU</td></tr>
+                    <tr><td><strong>Memory:</strong></td><td>16 GB</td></tr>
+                    <tr><td><strong>Last Boot Time:</strong></td><td>2026-04-17 07:50</td></tr>
+                    </table>
+                </div>
+
+                <div id="netadapters" class="tabcontent">
+                    <h3>Network Adapters</h3>
+                    <table>
+                        <tr>
+                            <th>Description</th>
+                            <th>IP Address</th>
+                            <th>MAC Address</th>
+                            <th>Gateway</th>
+                            <th>DNS Servers</th>
+                        </tr>                        <tr>
+                            <td>Lab Ethernet</td>
+                            <td>192.0.2.17</td>
+                            <td>02:00:00:00:00:17</td>
+                            <td>192.0.2.1</td>
+                            <td>192.0.2.53</td>
+                        </tr>                    </table>
+                </div>
+
+                <div id="drivers" class="tabcontent">
+                    <h3>Installed Drivers</h3>
+                    <table>
+                        <tr>
+                            <th>Device Name</th>
+                            <th>Manufacturer</th>
+                            <th>Version</th>
+                            <th>Date</th>
+                            <th>Signed</th>
+                            <th>Status</th>
+                        </tr>                    </table>
+                </div>
+
+                <div id="software" class="tabcontent">
+                    <h3>Installed Software</h3>
+                    <table>
+                        <tr>
+                            <th>Name</th>
+                            <th>Version</th>
+                            <th>Publisher</th>
+                            <th>Install Date</th>
+                            <th>Architecture</th>
+                        </tr>                    </table>
+                </div>
+
+                <div id="updates" class="tabcontent">
+                    <h3>Windows Update History</h3>
+                    <table>
+                        <tr>
+                            <th>Title</th>
+                            <th>Date</th>
+                            <th>Operation</th>
+                            <th>Status</th>
+                        </tr>                    </table>
+                </div>
+
+                <div id="usbdevices" class="tabcontent">
+                    <h3>USB Storage History</h3>
+                    <table>
+                        <tr>
+                            <th>Device Name</th>
+                            <th>Device ID</th>
+                        </tr>                    </table>
+                </div>
+        </div>        <div class="section">
+            <h2 class="section-header">Network Connections</h2>
+            <div class="section-content">
+                <div class="tab">
+                    <button class="tablinks" onclick="openTab(event, 'connections')">Active Connections</button>
+                    <button class="tablinks" onclick="openTab(event, 'listening')">Listening Ports</button>
+                    <button class="tablinks" onclick="openTab(event, 'smbshares')">SMB Shares</button>
+                    <button class="tablinks" onclick="openTab(event, 'dnscache')">DNS Cache</button>
+                </div>
+
+                <div id="connections" class="tabcontent">
+                    <h3>Active Network Connections</h3>
+                    <table>
+                        <tr>
+                            <th>Protocol</th>
+                            <th>Local Address</th>
+                            <th>Foreign Address</th>
+                            <th>State</th>
+                            <th>Process</th>
+                        </tr>                        <tr>
+                            <td>TCP</td>
+                            <td>192.0.2.17:50124</td>
+                            <td>198.51.100.24:443</td>
+                            <td>Established</td>
+                            <td>msedge (4240)</td>
+                        </tr>                    </table>
+                </div>
+
+                <div id="listening" class="tabcontent">
+                    <h3>Listening Ports</h3>
+                    <table>
+                        <tr>
+                            <th>Local Address</th>
+                            <th>Local Port</th>
+                            <th>Process</th>
+                        </tr>                    </table>
+                </div>
+
+                <div id="smbshares" class="tabcontent">
+                    <h3>SMB Shares</h3>
+                    <table>
+                        <tr>
+                            <th>Name</th>
+                            <th>Path</th>
+                            <th>Description</th>
+                            <th>Access Rights</th>
+                        </tr>                    </table>
+                </div>
+
+                <div id="dnscache" class="tabcontent">
+                    <h3>DNS Cache Entries</h3>
+                    <table>
+                        <tr>
+                            <th>Name</th>
+                            <th>Data</th>
+                            <th>TTL</th>
+                            <th>Type</th>
+                        </tr>                        <tr>
+                            <td>support.example</td>
+                            <td>198.51.100.24</td>
+                            <td>240</td>
+                            <td>A</td>
+                        </tr>                    </table>
+                </div>
+            </div>
+        </div>        <div class="section">
+            <h2 class="section-header">Process Information</h2>
+            <div class="section-content">
+                <div class="tab">
+                    <button class="tablinks" onclick="openTab(event, 'processes')">Running Processes</button>
+                    <button class="tablinks" onclick="openTab(event, 'services')">Services</button>
+                    <button class="tablinks" onclick="openTab(event, 'tasks')">Scheduled Tasks</button>
+                    <button class="tablinks" onclick="openTab(event, 'autoruns')">AutoRun Entries</button>
+                    <button class="tablinks" onclick="openTab(event, 'startupitems')">Startup Items</button>
+                </div>
+
+                <div id="processes" class="tabcontent">
+                    <h3>Running Processes</h3>
+                    <table>
+                        <tr>
+                            <th>PID</th>
+                            <th>Name</th>
+                            <th>Path</th>
+                            <th>Parent PID</th>
+                            <th>Start Time</th>
+                        </tr>                        <tr>
+                            <td>4240</td>
+                            <td>msedge</td>
+                            <td>C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe</td>
+                            <td>1800</td>
+                            <td>2026-04-17 09:10</td>
+                        </tr>                    </table>
+                </div>
+
+                <div id="services" class="tabcontent">
+                    <h3>Services</h3>
+                    <table>
+                        <tr>
+                            <th>Name</th>
+                            <th>Display Name</th>
+                            <th>Status</th>
+                            <th>Start Type</th>
+                            <th>Path</th>
+                        </tr>                    </table>
+                </div>
+
+                <div id="tasks" class="tabcontent">
+                    <h3>Scheduled Tasks</h3>
+                    <table>
+                        <tr>
+                            <th>Task Name</th>
+                            <th>Path</th>
+                            <th>State</th>
+                            <th>Actions</th>
+                            <th>User</th>
+                        </tr>                    </table>
+                </div>
+
+                <div id="autoruns" class="tabcontent">
+                    <h3>AutoRun Entries</h3>
+                    <table>
+                        <tr>
+                            <th>Location</th>
+                            <th>Entry Name</th>
+                            <th>Command</th>
+                        </tr>                    </table>
+                </div>
+
+                <div id="startupitems" class="tabcontent">
+                    <h3>Startup Programs</h3>
+                    <table>
+                        <tr>
+                            <th>Name</th>
+                            <th>Target</th>
+                            <th>Arguments</th>
+                            <th>Type</th>
+                        </tr>                    </table>
+                </div>
+            </div>
+        </div>        <div class="section">
+            <h2 class="section-header">User Information</h2>
+            <div class="section-content">
+                <div class="tab">
+                    <button class="tablinks" onclick="openTab(event, 'users')">Local Users</button>
+                    <button class="tablinks" onclick="openTab(event, 'activeusers')">Active Sessions</button>
+                    <button class="tablinks" onclick="openTab(event, 'pshistory')">PowerShell History</button>
+                    <button class="tablinks" onclick="openTab(event, 'rdpsessions')">RDP Sessions</button>
+                </div>
+
+                <div id="users" class="tabcontent">
+                    <h3>Local Users</h3>
+                    <table>
+                        <tr>
+                            <th>Username</th>
+                            <th>Enabled</th>
+                            <th>Password Required</th>
+                            <th>Last Logon</th>
+                        </tr>                        <tr>
+                            <td>lab-analyst</td>
+                            <td>True</td>
+                            <td>True</td>
+                            <td>2026-04-17 08:05</td>
+                        </tr>                    </table>
+                </div>
+
+                <div id="activeusers" class="tabcontent">
+                    <h3>Active User Sessions</h3>
+                    <table>
+                        <tr>
+                            <th>Username</th>
+                            <th>Session Name</th>
+                            <th>State</th>
+                            <th>Idle Time</th>
+                            <th>Logon Time</th>
+                        </tr>                    </table>
+                </div>
+
+                <div id="pshistory" class="tabcontent">
+                    <h3>PowerShell Command History</h3>
+                    <table>
+                        <tr>
+                            <th>Command</th>
+                        </tr>                        <tr>
+                            <td>Get-Date</td>
+                        </tr>                    </table>
+                </div>
+
+                <div id="rdpsessions" class="tabcontent">
+                    <h3>RDP Session History</h3>
+                    <table>
+                        <tr>
+                            <th>Time</th>
+                            <th>Username</th>
+                            <th>Action</th>
+                            <th>Source IP</th>
+                        </tr>                    </table>
+                </div>
+            </div>
+        </div>        <div class="section">
+            <h2 class="section-header">Directory Listings</h2>
+            <div class="section-content">
+                <div class="tab">
+                    <button class="tablinks" onclick="openTab(event, 'dir_windows')">Windows</button>
+                    <button class="tablinks" onclick="openTab(event, 'dir_prefetch')">Prefetch</button>
+                    <button class="tablinks" onclick="openTab(event, 'dir_wintemp')">Windows Temp</button>
+                    <button class="tablinks" onclick="openTab(event, 'dir_programfiles')">Program Files</button>
+                    <button class="tablinks" onclick="openTab(event, 'dir_programfilesx86')">Program Files (x86)</button>
+                    <button class="tablinks" onclick="openTab(event, 'dir_programdata')">ProgramData</button>
+                    <button class="tablinks" onclick="openTab(event, 'dir_recyclebin')">Recycle Bin</button>
+                    <button class="tablinks" onclick="openTab(event, 'dir_users')">Users</button>
+                    <button class="tablinks" onclick="openTab(event, 'dir_desktop')">Desktop</button>
+                    <button class="tablinks" onclick="openTab(event, 'dir_documents')">Documents</button>
+                    <button class="tablinks" onclick="openTab(event, 'dir_downloads')">Downloads</button>
+                    <button class="tablinks" onclick="openTab(event, 'dir_recent')">Recent Files</button>
+                    <button class="tablinks" onclick="openTab(event, 'dir_appdata_local')">AppData Local</button>
+                    <button class="tablinks" onclick="openTab(event, 'dir_appdata_roaming')">AppData Roaming</button>
+                </div>
+
+                <div id="dir_windows" class="tabcontent">
+                    <h3>Windows Directory (C:\Windows)</h3>
+                    <p>Item Count: 0 |
+                       Total Size: 0 MB</p>
+                    <table>
+                        <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Size (KB)</th>
+                            <th>Created</th>
+                            <th>Modified</th>
+                            <th>Attributes</th>
+                        </tr>                    </table>
+                </div>
+
+                <div id="dir_prefetch" class="tabcontent">
+                    <h3>Prefetch Directory (C:\Windows\Prefetch)</h3>
+                    <p>Item Count: 0 |
+                       Total Size: 0 MB</p>
+                    <table>
+                        <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Size (KB)</th>
+                            <th>Created</th>
+                            <th>Modified</th>
+                            <th>Attributes</th>
+                        </tr>                    </table>
+                </div>
+
+                <div id="dir_wintemp" class="tabcontent">
+                    <h3>Windows Temp Directory (C:\Windows\Temp)</h3>
+                    <p>Item Count: 0 |
+                       Total Size: 0 MB</p>
+                    <table>
+                        <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Size (KB)</th>
+                            <th>Created</th>
+                            <th>Modified</th>
+                            <th>Attributes</th>
+                        </tr>                    </table>
+                </div>
+
+                <div id="dir_programfiles" class="tabcontent">
+                    <h3>Program Files Directory (C:\Program Files)</h3>
+                    <p>Item Count: 0 |
+                       Total Size: 0 MB</p>
+                    <table>
+                        <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Size (KB)</th>
+                            <th>Created</th>
+                            <th>Modified</th>
+                            <th>Attributes</th>
+                        </tr>                    </table>
+                </div>
+
+                <div id="dir_programfilesx86" class="tabcontent">
+                    <h3>Program Files (x86) Directory (C:\Program Files (x86))</h3>
+                    <p>Item Count: 0 |
+                       Total Size: 0 MB</p>
+                    <table>
+                        <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Size (KB)</th>
+                            <th>Created</th>
+                            <th>Modified</th>
+                            <th>Attributes</th>
+                        </tr>                    </table>
+                </div>
+
+                <div id="dir_programdata" class="tabcontent">
+                    <h3>ProgramData Directory (C:\ProgramData)</h3>
+                    <p>Item Count: 0 |
+                       Total Size: 0 MB</p>
+                    <table>
+                        <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Size (KB)</th>
+                            <th>Created</th>
+                            <th>Modified</th>
+                            <th>Attributes</th>
+                        </tr>                    </table>
+                </div>
+
+                <div id="dir_recyclebin" class="tabcontent">
+                    <h3>Recycle Bin (C:\$Recycle.Bin)</h3>
+                    <p>Item Count: 0 |
+                       Total Size: 0 MB</p>
+                    <table>
+                        <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Size (KB)</th>
+                            <th>Created</th>
+                            <th>Modified</th>
+                            <th>Attributes</th>
+                        </tr>                    </table>
+                </div>
+
+                <div id="dir_users" class="tabcontent">
+                    <h3>Users Directory (C:\Users)</h3>
+                    <p>Item Count: 0 |
+                       Total Size: 0 MB</p>
+                    <table>
+                        <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Size (KB)</th>
+                            <th>Created</th>
+                            <th>Modified</th>
+                            <th>Attributes</th>
+                        </tr>                    </table>
+                </div>
+
+                <div id="dir_desktop" class="tabcontent">
+                    <h3>Desktop Directory (C:\Users\lab-analyst\Desktop)</h3>
+                    <p>Item Count: 0 |
+                       Total Size: 0 MB</p>
+                    <table>
+                        <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Size (KB)</th>
+                            <th>Created</th>
+                            <th>Modified</th>
+                            <th>Attributes</th>
+                        </tr>                    </table>
+                </div>
+
+                <div id="dir_documents" class="tabcontent">
+                    <h3>Documents Directory (C:\Users\lab-analyst\Documents)</h3>
+                    <p>Item Count: 0 |
+                       Total Size: 0 MB</p>
+                    <table>
+                        <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Size (KB)</th>
+                            <th>Created</th>
+                            <th>Modified</th>
+                            <th>Attributes</th>
+                        </tr>                    </table>
+                </div>
+
+                <div id="dir_downloads" class="tabcontent">
+                    <h3>Downloads Directory (C:\Users\lab-analyst\Downloads)</h3>
+                    <p>Item Count: 1 |
+                       Total Size: 0 MB</p>
+                    <table>
+                        <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Size (KB)</th>
+                            <th>Created</th>
+                            <th>Modified</th>
+                            <th>Attributes</th>
+                        </tr>                        <tr>
+                            <td>support-notes.txt</td>
+                            <td>File</td>
+                            <td>2</td>
+                            <td>2026-04-17 09:13</td>
+                            <td>2026-04-17 09:13</td>
+                            <td>Archive</td>
+                        </tr>                    </table>
+                </div>
+
+                <div id="dir_recent" class="tabcontent">
+                    <h3>Recent Files (C:\Users\lab-analyst\AppData\Roaming\Microsoft\Windows\Recent)</h3>
+                    <p>Item Count: 0 |
+                       Total Size: 0 MB</p>
+                    <table>
+                        <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Size (KB)</th>
+                            <th>Created</th>
+                            <th>Modified</th>
+                            <th>Attributes</th>
+                        </tr>                    </table>
+                </div>
+
+                <div id="dir_appdata_local" class="tabcontent">
+                    <h3>AppData Local (C:\Users\lab-analyst\AppData\Local)</h3>
+                    <p>Item Count: 0 |
+                       Total Size: 0 MB</p>
+                    <table>
+                        <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Size (KB)</th>
+                            <th>Created</th>
+                            <th>Modified</th>
+                            <th>Attributes</th>
+                        </tr>                    </table>
+                </div>
+
+                <div id="dir_appdata_roaming" class="tabcontent">
+                    <h3>AppData Roaming (C:\Users\lab-analyst\AppData\Roaming)</h3>
+                    <p>Item Count: 0 |
+                       Total Size: 0 MB</p>
+                    <table>
+                        <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Size (KB)</th>
+                            <th>Created</th>
+                            <th>Modified</th>
+                            <th>Attributes</th>
+                        </tr>                    </table>
+                </div>
+
+            </div>
+        </div>        <div class="section">
+            <h2 class="section-header">Browser History</h2>
+            <div class="section-content">
+                <div class="tab">
+                    <button class="tablinks" onclick="openTab(event, 'chrome_history')">Chrome</button>
+                    <button class="tablinks" onclick="openTab(event, 'edge_history')">Edge</button>
+                </div>
+
+                <div id="chrome_history" class="tabcontent">
+                    <h3>Google Chrome Browsing History</h3>
+                    <p>Entry Count: 0</p>
+                    <table>
+                        <tr>
+                            <th>Last Visit Time</th>
+                            <th>Title</th>
+                            <th>URL</th>
+                            <th>Visit Count</th>
+                        </tr>                    </table>
+                </div>
+
+                <div id="edge_history" class="tabcontent">
+                    <h3>Microsoft Edge Browsing History</h3>
+                    <p>Entry Count: 1</p>
+                    <table>
+                        <tr>
+                            <th>Last Visit Time</th>
+                            <th>Title</th>
+                            <th>URL</th>
+                            <th>Visit Count</th>
+                        </tr>                        <tr>
+                            <td>2026-04-17 09:12</td>
+                            <td class="title-cell">Support &amp; documentation &lt;lab&gt;</td>
+                            <td class="url-cell"><div class="url-container">https://support.example/help</div></td>
+                            <td>1</td>
+                        </tr>                    </table>
+                </div>
+            </div>
+        </div>    </div>
+    <script>
+        function openTab(evt, tabName) {
+            var section = evt.currentTarget.closest(".section-content");
+            section.querySelectorAll(".tabcontent").forEach(function (panel) {
+                panel.style.display = panel.id === tabName ? "block" : "none";
+            });
+            section.querySelectorAll(".tablinks").forEach(function (button) {
+                button.classList.toggle("active", button === evt.currentTarget);
+            });
+        }
+
+        // Initialize tabs by clicking the first tab button in each tab group
+        document.addEventListener("DOMContentLoaded", function() {
+            var tabGroups = document.getElementsByClassName("tab");
+            for (var i = 0; i < tabGroups.length; i++) {
+                var firstTab = tabGroups[i].getElementsByClassName("tablinks")[0];
+                if (firstTab) {
+                    firstTab.click();
+                }
+            }
+        });
+    </script>
+</body>
+</html>

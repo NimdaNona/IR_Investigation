@@ -1,0 +1,21 @@
+name: Verify the Windows report example
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  render-sample:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Render synthetic evidence with Windows PowerShell
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $file = Join-Path $env:RUNNER_TEMP 'sample-report.html'
+          .\examples\New-SampleReport.ps1 -OutputPath $file
+          $result = (Get-Content -Raw -Encoding UTF8 $file) -replace '\r\n', "`n"
+          $expected = (Get-Content -Raw -Encoding UTF8 .\examples\sample-report.html) -replace '\r\n', "`n"
+          if ($result -cne $expected) { throw 'The example differs from the current report formatter.' }
+          if (-not $result.Contains('Support &amp; documentation &lt;lab&gt;')) { throw 'Evidence text lost its HTML encoding.' }

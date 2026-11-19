@@ -9,11 +9,11 @@
     Date: March 26, 2025
     Requirements: PowerShell 5.1+, Administrative privileges recommended
 .EXAMPLE
-    .\DFIR_EDR_Deployment.ps1
-    Runs script and creates report in the current directory
+    .\IR_Data_Collection_v5.ps1
+    Runs collection and writes the report under C:\Investigation.
 .EXAMPLE
-    .\DFIR_EDR_Deployment.ps1 -OutputPath "C:\Investigation\Report.html"
-    Runs script and outputs report to specified path
+    .\IR_Data_Collection_v5.ps1 -OutputPath "C:\Investigation\Report.html" -OpenReport
+    Writes the report to the specified path and opens it in the default browser.
 #>
 
 #Script Configuration
@@ -1267,7 +1267,8 @@ function Generate-HTMLReport {
         [hashtable]$Data,
         
         [Parameter(Mandatory = $true)]
-        [string]$OutputPath
+        [string]$OutputPath,
+        [datetime]$GeneratedAt = (Get-Date)
     )
     
     Write-DFIRLog "Generating HTML report..."
@@ -1373,7 +1374,7 @@ function Generate-HTMLReport {
             padding: 10px;
             margin-bottom: 5px;
         }
-        
+
         /* Browser History Table Styles */
         .title-cell {
             max-width: 350px;
@@ -1415,7 +1416,7 @@ function Generate-HTMLReport {
 <body>
     <header>
         <h1>Incident Response Data Collection Report</h1>
-        <p>Generated: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")</p>
+        <p>Generated: $($GeneratedAt.ToString("yyyy-MM-dd HH:mm:ss"))</p>
     </header>
     <div class="container">
 "@
@@ -1433,19 +1434,19 @@ function Generate-HTMLReport {
                     <button class="tablinks" onclick="openTab(event, 'updates')">Windows Updates</button>
                     <button class="tablinks" onclick="openTab(event, 'usbdevices')">USB Devices</button>
                 </div>
-                
+
                 <div id="sysinfo" class="tabcontent">
                     <h3>System Information</h3>
                     <table>
-                    <tr><td><strong>Computer Name:</strong></td><td>$($Data.SystemInfo.ComputerSystem.Name)</td></tr>
-                    <tr><td><strong>Operating System:</strong></td><td>$($Data.SystemInfo.OperatingSystem.Caption) $($Data.SystemInfo.OperatingSystem.Version)</td></tr>
-                    <tr><td><strong>OS Installation Date:</strong></td><td>$($Data.SystemInfo.OperatingSystem.InstallDate)</td></tr>
-                    <tr><td><strong>Manufacturer:</strong></td><td>$($Data.SystemInfo.ComputerSystem.Manufacturer)</td></tr>
-                    <tr><td><strong>Model:</strong></td><td>$($Data.SystemInfo.ComputerSystem.Model)</td></tr>
-                    <tr><td><strong>BIOS Version:</strong></td><td>$($Data.SystemInfo.BIOS.Name)</td></tr>
-                    <tr><td><strong>Processor:</strong></td><td>$($Data.SystemInfo.Processors[0].Name)</td></tr>
+                    <tr><td><strong>Computer Name:</strong></td><td>$([Net.WebUtility]::HtmlEncode([string]$Data.SystemInfo.ComputerSystem.Name))</td></tr>
+                    <tr><td><strong>Operating System:</strong></td><td>$([Net.WebUtility]::HtmlEncode([string]$Data.SystemInfo.OperatingSystem.Caption)) $([Net.WebUtility]::HtmlEncode([string]$Data.SystemInfo.OperatingSystem.Version))</td></tr>
+                    <tr><td><strong>OS Installation Date:</strong></td><td>$([Net.WebUtility]::HtmlEncode([string]$Data.SystemInfo.OperatingSystem.InstallDate))</td></tr>
+                    <tr><td><strong>Manufacturer:</strong></td><td>$([Net.WebUtility]::HtmlEncode([string]$Data.SystemInfo.ComputerSystem.Manufacturer))</td></tr>
+                    <tr><td><strong>Model:</strong></td><td>$([Net.WebUtility]::HtmlEncode([string]$Data.SystemInfo.ComputerSystem.Model))</td></tr>
+                    <tr><td><strong>BIOS Version:</strong></td><td>$([Net.WebUtility]::HtmlEncode([string]$Data.SystemInfo.BIOS.Name))</td></tr>
+                    <tr><td><strong>Processor:</strong></td><td>$([Net.WebUtility]::HtmlEncode([string]$Data.SystemInfo.Processors[0].Name))</td></tr>
                     <tr><td><strong>Memory:</strong></td><td>$([math]::Round($Data.SystemInfo.ComputerSystem.TotalPhysicalMemory / 1GB, 2)) GB</td></tr>
-                    <tr><td><strong>Last Boot Time:</strong></td><td>$($Data.SystemInfo.BootTime)</td></tr>
+                    <tr><td><strong>Last Boot Time:</strong></td><td>$([Net.WebUtility]::HtmlEncode([string]$Data.SystemInfo.BootTime))</td></tr>
                     </table>
                 </div>
 
@@ -1468,11 +1469,11 @@ function Generate-HTMLReport {
         $dnsServers = if ($adapter.DNSServerSearchOrder) { ($adapter.DNSServerSearchOrder -join ", ") } else { "None" }
         $html += @"
                         <tr>
-                            <td>$($adapter.Description)</td>
-                            <td>$ipAddresses</td>
-                            <td>$($adapter.MACAddress)</td>
-                            <td>$gateways</td>
-                            <td>$dnsServers</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$adapter.Description))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$ipAddresses))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$adapter.MACAddress))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$gateways))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$dnsServers))</td>
                         </tr>
 "@
     }
@@ -1480,7 +1481,7 @@ function Generate-HTMLReport {
     $html += @"
                     </table>
                 </div>
-                
+
                 <div id="drivers" class="tabcontent">
                     <h3>Installed Drivers</h3>
                     <table>
@@ -1498,12 +1499,12 @@ function Generate-HTMLReport {
     foreach ($driver in $Data.SystemInfo.Drivers) {
         $html += @"
                         <tr>
-                            <td>$($driver.DeviceName)</td>
-                            <td>$($driver.Manufacturer)</td>
-                            <td>$($driver.DriverVersion)</td>
-                            <td>$($driver.DriverDate)</td>
-                            <td>$($driver.IsSigned)</td>
-                            <td>$($driver.Status)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$driver.DeviceName))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$driver.Manufacturer))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$driver.DriverVersion))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$driver.DriverDate))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$driver.IsSigned))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$driver.Status))</td>
                         </tr>
 "@
     }
@@ -1511,7 +1512,7 @@ function Generate-HTMLReport {
     $html += @"
                     </table>
                 </div>
-                
+
                 <div id="software" class="tabcontent">
                     <h3>Installed Software</h3>
                     <table>
@@ -1528,11 +1529,11 @@ function Generate-HTMLReport {
     foreach ($app in $Data.SystemInfo.InstalledSoftware) {
         $html += @"
                         <tr>
-                            <td>$($app.DisplayName)</td>
-                            <td>$($app.DisplayVersion)</td>
-                            <td>$($app.Publisher)</td>
-                            <td>$($app.InstallDate)</td>
-                            <td>$($app.Architecture)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$app.DisplayName))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$app.DisplayVersion))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$app.Publisher))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$app.InstallDate))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$app.Architecture))</td>
                         </tr>
 "@
     }
@@ -1540,7 +1541,7 @@ function Generate-HTMLReport {
     $html += @"
                     </table>
                 </div>
-                
+
                 <div id="updates" class="tabcontent">
                     <h3>Windows Update History</h3>
                     <table>
@@ -1556,10 +1557,10 @@ function Generate-HTMLReport {
     foreach ($update in $Data.SystemInfo.WindowsUpdateHistory) {
         $html += @"
                         <tr>
-                            <td>$($update.Title)</td>
-                            <td>$($update.Date)</td>
-                            <td>$($update.Operation)</td>
-                            <td>$($update.Status)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$update.Title))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$update.Date))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$update.Operation))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$update.Status))</td>
                         </tr>
 "@
     }
@@ -1567,7 +1568,7 @@ function Generate-HTMLReport {
     $html += @"
                     </table>
                 </div>
-                
+
                 <div id="usbdevices" class="tabcontent">
                     <h3>USB Storage History</h3>
                     <table>
@@ -1581,8 +1582,8 @@ function Generate-HTMLReport {
     foreach ($usb in $Data.UsbInfo.USBHistory) {
         $html += @"
                         <tr>
-                            <td>$($usb.FriendlyName)</td>
-                            <td>$($usb.PSChildName)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$usb.FriendlyName))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$usb.PSChildName))</td>
                         </tr>
 "@
     }
@@ -1621,11 +1622,11 @@ function Generate-HTMLReport {
     foreach ($conn in $Data.NetworkInfo.Connections) {
         $html += @"
                         <tr>
-                            <td>$($conn.Protocol)</td>
-                            <td>$($conn.LocalAddress)</td>
-                            <td>$($conn.ForeignAddress)</td>
-                            <td>$($conn.State)</td>
-                            <td>$($conn.ProcessName) ($($conn.PID))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$conn.Protocol))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$conn.LocalAddress))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$conn.ForeignAddress))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$conn.State))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$conn.ProcessName)) ($([Net.WebUtility]::HtmlEncode([string]$conn.PID)))</td>
                         </tr>
 "@
     }
@@ -1648,9 +1649,9 @@ function Generate-HTMLReport {
     foreach ($port in $Data.NetworkInfo.ListeningPorts) {
         $html += @"
                         <tr>
-                            <td>$($port.LocalAddress)</td>
-                            <td>$($port.LocalPort)</td>
-                            <td>$($port.ProcessName) ($($port.OwningProcess))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$port.LocalAddress))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$port.LocalPort))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$port.ProcessName)) ($([Net.WebUtility]::HtmlEncode([string]$port.OwningProcess)))</td>
                         </tr>
 "@
     }
@@ -1674,10 +1675,10 @@ function Generate-HTMLReport {
     foreach ($share in $Data.NetworkInfo.SMBShares) {
         $html += @"
                         <tr>
-                            <td>$($share.Name)</td>
-                            <td>$($share.Path)</td>
-                            <td>$($share.Description)</td>
-                            <td>$($share.AccessRights)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$share.Name))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$share.Path))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$share.Description))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$share.AccessRights))</td>
                         </tr>
 "@
     }
@@ -1701,10 +1702,10 @@ function Generate-HTMLReport {
     foreach ($entry in $Data.NetworkInfo.DNSCache) {
         $html += @"
                         <tr>
-                            <td>$($entry.Name)</td>
-                            <td>$($entry.Data)</td>
-                            <td>$($entry.TimeToLive)</td>
-                            <td>$($entry.Type)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$entry.Name))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$entry.Data))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$entry.TimeToLive))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$entry.Type))</td>
                         </tr>
 "@
     }
@@ -1745,11 +1746,11 @@ function Generate-HTMLReport {
     foreach ($process in $Data.ProcessInfo.Processes) {
         $html += @"
                         <tr>
-                            <td>$($process.Id)</td>
-                            <td>$($process.ProcessName)</td>
-                            <td>$($process.Path)</td>
-                            <td>$($process.ParentProcessId)</td>
-                            <td>$($process.StartTime)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$process.Id))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$process.ProcessName))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$process.Path))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$process.ParentProcessId))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$process.StartTime))</td>
                         </tr>
 "@
     }
@@ -1774,11 +1775,11 @@ function Generate-HTMLReport {
     foreach ($service in $Data.ProcessInfo.Services) {
         $html += @"
                         <tr>
-                            <td>$($service.Name)</td>
-                            <td>$($service.DisplayName)</td>
-                            <td>$($service.Status)</td>
-                            <td>$($service.StartType)</td>
-                            <td>$($service.Path)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$service.Name))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$service.DisplayName))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$service.Status))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$service.StartType))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$service.Path))</td>
                         </tr>
 "@
     }
@@ -1786,7 +1787,7 @@ function Generate-HTMLReport {
     $html += @"
                     </table>
                 </div>
-                
+
                 <div id="tasks" class="tabcontent">
                     <h3>Scheduled Tasks</h3>
                     <table>
@@ -1803,11 +1804,11 @@ function Generate-HTMLReport {
     foreach ($task in $Data.TasksInfo.ScheduledTasks) {
         $html += @"
                         <tr>
-                            <td>$($task.TaskName)</td>
-                            <td>$($task.TaskPath)</td>
-                            <td>$($task.State)</td>
-                            <td>$($task.Actions)</td>
-                            <td>$($task.Principal)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$task.TaskName))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$task.TaskPath))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$task.State))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$task.Actions))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$task.Principal))</td>
                         </tr>
 "@
     }
@@ -1815,7 +1816,7 @@ function Generate-HTMLReport {
     $html += @"
                     </table>
                 </div>
-                
+
                 <div id="autoruns" class="tabcontent">
                     <h3>AutoRun Entries</h3>
                     <table>
@@ -1830,9 +1831,9 @@ function Generate-HTMLReport {
     foreach ($autorun in $Data.UserInfo.AutoRuns) {
         $html += @"
                         <tr>
-                            <td>$($autorun.Location)</td>
-                            <td>$($autorun.EntryName)</td>
-                            <td>$($autorun.Command)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$autorun.Location))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$autorun.EntryName))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$autorun.Command))</td>
                         </tr>
 "@
     }
@@ -1840,7 +1841,7 @@ function Generate-HTMLReport {
     $html += @"
                     </table>
                 </div>
-                
+
                 <div id="startupitems" class="tabcontent">
                     <h3>Startup Programs</h3>
                     <table>
@@ -1856,10 +1857,10 @@ function Generate-HTMLReport {
     foreach ($program in $Data.UserInfo.StartupPrograms) {
         $html += @"
                         <tr>
-                            <td>$($program.Name)</td>
-                            <td>$($program.Target)</td>
-                            <td>$($program.Arguments)</td>
-                            <td>$($program.Type)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$program.Name))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$program.Target))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$program.Arguments))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$program.Type))</td>
                         </tr>
 "@
     }
@@ -1898,10 +1899,10 @@ function Generate-HTMLReport {
     foreach ($user in $Data.UserInfo.LocalUsers) {
         $html += @"
                         <tr>
-                            <td>$($user.Name)</td>
-                            <td>$($user.Enabled)</td>
-                            <td>$($user.PasswordRequired)</td>
-                            <td>$($user.LastLogon)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$user.Name))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$user.Enabled))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$user.PasswordRequired))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$user.LastLogon))</td>
                         </tr>
 "@
     }
@@ -1926,11 +1927,11 @@ function Generate-HTMLReport {
     foreach ($user in $Data.UserInfo.ActiveUsers) {
         $html += @"
                         <tr>
-                            <td>$($user.Username)</td>
-                            <td>$($user.SessionName)</td>
-                            <td>$($user.State)</td>
-                            <td>$($user.IdleTime)</td>
-                            <td>$($user.LogonTime)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$user.Username))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$user.SessionName))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$user.State))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$user.IdleTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$user.LogonTime))</td>
                         </tr>
 "@
     }
@@ -1951,7 +1952,7 @@ function Generate-HTMLReport {
     foreach ($cmd in $Data.UserInfo.PowerShellHistory) {
         $html += @"
                         <tr>
-                            <td>$($cmd.Command)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$cmd.Command))</td>
                         </tr>
 "@
     }
@@ -1975,10 +1976,10 @@ function Generate-HTMLReport {
     foreach ($session in $Data.UserInfo.RDPSessions) {
         $html += @"
                         <tr>
-                            <td>$($session.Time)</td>
-                            <td>$($session.Username)</td>
-                            <td>$($session.Action)</td>
-                            <td>$($session.SourceIP)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$session.Time))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$session.Username))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$session.Action))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$session.SourceIP))</td>
                         </tr>
 "@
     }
@@ -2013,8 +2014,8 @@ function Generate-HTMLReport {
                 </div>
 
                 <div id="dir_windows" class="tabcontent">
-                    <h3>Windows Directory ($($Data.DirectoryInfo["Windows"].Path))</h3>
-                    <p>Item Count: $($Data.DirectoryInfo["Windows"].Count) | 
+                    <h3>Windows Directory ($([Net.WebUtility]::HtmlEncode([string]$Data.DirectoryInfo["Windows"].Path)))</h3>
+                    <p>Item Count: $([Net.WebUtility]::HtmlEncode([string]$Data.DirectoryInfo["Windows"].Count)) |
                        Total Size: $([math]::Round($Data.DirectoryInfo["Windows"].SizeTotal / 1MB, 2)) MB</p>
                     <table>
                         <tr>
@@ -2031,12 +2032,12 @@ function Generate-HTMLReport {
         $sizeKB = if ($file.Length) { [math]::Round($file.Length / 1KB, 2) } else { "N/A" }
         $html += @"
                         <tr>
-                            <td>$($file.Name)</td>
-                            <td>$($file.Type)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Name))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Type))</td>
                             <td>$sizeKB</td>
-                            <td>$($file.CreationTime)</td>
-                            <td>$($file.LastWriteTime)</td>
-                            <td>$($file.Attributes)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.CreationTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.LastWriteTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Attributes))</td>
                         </tr>
 "@
     }
@@ -2046,8 +2047,8 @@ function Generate-HTMLReport {
                 </div>
 
                 <div id="dir_prefetch" class="tabcontent">
-                    <h3>Prefetch Directory ($($Data.DirectoryInfo["WindowsPrefetch"].Path))</h3>
-                    <p>Item Count: $($Data.DirectoryInfo["WindowsPrefetch"].Count) | 
+                    <h3>Prefetch Directory ($([Net.WebUtility]::HtmlEncode([string]$Data.DirectoryInfo["WindowsPrefetch"].Path)))</h3>
+                    <p>Item Count: $([Net.WebUtility]::HtmlEncode([string]$Data.DirectoryInfo["WindowsPrefetch"].Count)) |
                        Total Size: $([math]::Round($Data.DirectoryInfo["WindowsPrefetch"].SizeTotal / 1MB, 2)) MB</p>
                     <table>
                         <tr>
@@ -2064,12 +2065,12 @@ function Generate-HTMLReport {
         $sizeKB = if ($file.Length) { [math]::Round($file.Length / 1KB, 2) } else { "N/A" }
         $html += @"
                         <tr>
-                            <td>$($file.Name)</td>
-                            <td>$($file.Type)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Name))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Type))</td>
                             <td>$sizeKB</td>
-                            <td>$($file.CreationTime)</td>
-                            <td>$($file.LastWriteTime)</td>
-                            <td>$($file.Attributes)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.CreationTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.LastWriteTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Attributes))</td>
                         </tr>
 "@
     }
@@ -2079,8 +2080,8 @@ function Generate-HTMLReport {
                 </div>
 
                 <div id="dir_wintemp" class="tabcontent">
-                    <h3>Windows Temp Directory ($($Data.DirectoryInfo["WindowsTemp"].Path))</h3>
-                    <p>Item Count: $($Data.DirectoryInfo["WindowsTemp"].Count) | 
+                    <h3>Windows Temp Directory ($([Net.WebUtility]::HtmlEncode([string]$Data.DirectoryInfo["WindowsTemp"].Path)))</h3>
+                    <p>Item Count: $([Net.WebUtility]::HtmlEncode([string]$Data.DirectoryInfo["WindowsTemp"].Count)) |
                        Total Size: $([math]::Round($Data.DirectoryInfo["WindowsTemp"].SizeTotal / 1MB, 2)) MB</p>
                     <table>
                         <tr>
@@ -2097,12 +2098,12 @@ function Generate-HTMLReport {
         $sizeKB = if ($file.Length) { [math]::Round($file.Length / 1KB, 2) } else { "N/A" }
         $html += @"
                         <tr>
-                            <td>$($file.Name)</td>
-                            <td>$($file.Type)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Name))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Type))</td>
                             <td>$sizeKB</td>
-                            <td>$($file.CreationTime)</td>
-                            <td>$($file.LastWriteTime)</td>
-                            <td>$($file.Attributes)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.CreationTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.LastWriteTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Attributes))</td>
                         </tr>
 "@
     }
@@ -2112,8 +2113,8 @@ function Generate-HTMLReport {
                 </div>
 
                 <div id="dir_programfiles" class="tabcontent">
-                    <h3>Program Files Directory ($($Data.DirectoryInfo["ProgramFiles"].Path))</h3>
-                    <p>Item Count: $($Data.DirectoryInfo["ProgramFiles"].Count) | 
+                    <h3>Program Files Directory ($([Net.WebUtility]::HtmlEncode([string]$Data.DirectoryInfo["ProgramFiles"].Path)))</h3>
+                    <p>Item Count: $([Net.WebUtility]::HtmlEncode([string]$Data.DirectoryInfo["ProgramFiles"].Count)) |
                        Total Size: $([math]::Round($Data.DirectoryInfo["ProgramFiles"].SizeTotal / 1MB, 2)) MB</p>
                     <table>
                         <tr>
@@ -2130,12 +2131,12 @@ function Generate-HTMLReport {
         $sizeKB = if ($file.Length) { [math]::Round($file.Length / 1KB, 2) } else { "N/A" }
         $html += @"
                         <tr>
-                            <td>$($file.Name)</td>
-                            <td>$($file.Type)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Name))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Type))</td>
                             <td>$sizeKB</td>
-                            <td>$($file.CreationTime)</td>
-                            <td>$($file.LastWriteTime)</td>
-                            <td>$($file.Attributes)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.CreationTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.LastWriteTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Attributes))</td>
                         </tr>
 "@
     }
@@ -2146,7 +2147,7 @@ function Generate-HTMLReport {
 
                 <div id="dir_programfilesx86" class="tabcontent">
                     <h3>Program Files (x86) Directory ($($Data.DirectoryInfo["ProgramFilesX86"].Path))</h3>
-                    <p>Item Count: $($Data.DirectoryInfo["ProgramFilesX86"].Count) | 
+                    <p>Item Count: $($Data.DirectoryInfo["ProgramFilesX86"].Count) |
                        Total Size: $([math]::Round($Data.DirectoryInfo["ProgramFilesX86"].SizeTotal / 1MB, 2)) MB</p>
                     <table>
                         <tr>
@@ -2163,12 +2164,12 @@ function Generate-HTMLReport {
         $sizeKB = if ($file.Length) { [math]::Round($file.Length / 1KB, 2) } else { "N/A" }
         $html += @"
                         <tr>
-                            <td>$($file.Name)</td>
-                            <td>$($file.Type)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Name))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Type))</td>
                             <td>$sizeKB</td>
-                            <td>$($file.CreationTime)</td>
-                            <td>$($file.LastWriteTime)</td>
-                            <td>$($file.Attributes)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.CreationTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.LastWriteTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Attributes))</td>
                         </tr>
 "@
     }
@@ -2178,8 +2179,8 @@ function Generate-HTMLReport {
                 </div>
 
                 <div id="dir_programdata" class="tabcontent">
-                    <h3>ProgramData Directory ($($Data.DirectoryInfo["ProgramData"].Path))</h3>
-                    <p>Item Count: $($Data.DirectoryInfo["ProgramData"].Count) | 
+                    <h3>ProgramData Directory ($([Net.WebUtility]::HtmlEncode([string]$Data.DirectoryInfo["ProgramData"].Path)))</h3>
+                    <p>Item Count: $([Net.WebUtility]::HtmlEncode([string]$Data.DirectoryInfo["ProgramData"].Count)) |
                        Total Size: $([math]::Round($Data.DirectoryInfo["ProgramData"].SizeTotal / 1MB, 2)) MB</p>
                     <table>
                         <tr>
@@ -2196,12 +2197,12 @@ function Generate-HTMLReport {
         $sizeKB = if ($file.Length) { [math]::Round($file.Length / 1KB, 2) } else { "N/A" }
         $html += @"
                         <tr>
-                            <td>$($file.Name)</td>
-                            <td>$($file.Type)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Name))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Type))</td>
                             <td>$sizeKB</td>
-                            <td>$($file.CreationTime)</td>
-                            <td>$($file.LastWriteTime)</td>
-                            <td>$($file.Attributes)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.CreationTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.LastWriteTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Attributes))</td>
                         </tr>
 "@
     }
@@ -2211,8 +2212,8 @@ function Generate-HTMLReport {
                 </div>
 
                 <div id="dir_recyclebin" class="tabcontent">
-                    <h3>Recycle Bin ($($Data.DirectoryInfo["RecycleBin"].Path))</h3>
-                    <p>Item Count: $($Data.DirectoryInfo["RecycleBin"].Count) | 
+                    <h3>Recycle Bin ($([Net.WebUtility]::HtmlEncode([string]$Data.DirectoryInfo["RecycleBin"].Path)))</h3>
+                    <p>Item Count: $([Net.WebUtility]::HtmlEncode([string]$Data.DirectoryInfo["RecycleBin"].Count)) |
                        Total Size: $([math]::Round($Data.DirectoryInfo["RecycleBin"].SizeTotal / 1MB, 2)) MB</p>
                     <table>
                         <tr>
@@ -2229,12 +2230,12 @@ function Generate-HTMLReport {
         $sizeKB = if ($file.Length) { [math]::Round($file.Length / 1KB, 2) } else { "N/A" }
         $html += @"
                         <tr>
-                            <td>$($file.Name)</td>
-                            <td>$($file.Type)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Name))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Type))</td>
                             <td>$sizeKB</td>
-                            <td>$($file.CreationTime)</td>
-                            <td>$($file.LastWriteTime)</td>
-                            <td>$($file.Attributes)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.CreationTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.LastWriteTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Attributes))</td>
                         </tr>
 "@
     }
@@ -2244,8 +2245,8 @@ function Generate-HTMLReport {
                 </div>
 
                 <div id="dir_users" class="tabcontent">
-                    <h3>Users Directory ($($Data.DirectoryInfo["UserProfiles"].Path))</h3>
-                    <p>Item Count: $($Data.DirectoryInfo["UserProfiles"].Count) | 
+                    <h3>Users Directory ($([Net.WebUtility]::HtmlEncode([string]$Data.DirectoryInfo["UserProfiles"].Path)))</h3>
+                    <p>Item Count: $([Net.WebUtility]::HtmlEncode([string]$Data.DirectoryInfo["UserProfiles"].Count)) |
                        Total Size: $([math]::Round($Data.DirectoryInfo["UserProfiles"].SizeTotal / 1MB, 2)) MB</p>
                     <table>
                         <tr>
@@ -2262,12 +2263,12 @@ function Generate-HTMLReport {
         $sizeKB = if ($file.Length) { [math]::Round($file.Length / 1KB, 2) } else { "N/A" }
         $html += @"
                         <tr>
-                            <td>$($file.Name)</td>
-                            <td>$($file.Type)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Name))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Type))</td>
                             <td>$sizeKB</td>
-                            <td>$($file.CreationTime)</td>
-                            <td>$($file.LastWriteTime)</td>
-                            <td>$($file.Attributes)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.CreationTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.LastWriteTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Attributes))</td>
                         </tr>
 "@
     }
@@ -2277,8 +2278,8 @@ function Generate-HTMLReport {
                 </div>
 
                 <div id="dir_desktop" class="tabcontent">
-                    <h3>Desktop Directory ($($Data.DirectoryInfo["UserDesktop"].Path))</h3>
-                    <p>Item Count: $($Data.DirectoryInfo["UserDesktop"].Count) | 
+                    <h3>Desktop Directory ($([Net.WebUtility]::HtmlEncode([string]$Data.DirectoryInfo["UserDesktop"].Path)))</h3>
+                    <p>Item Count: $([Net.WebUtility]::HtmlEncode([string]$Data.DirectoryInfo["UserDesktop"].Count)) |
                        Total Size: $([math]::Round($Data.DirectoryInfo["UserDesktop"].SizeTotal / 1MB, 2)) MB</p>
                     <table>
                         <tr>
@@ -2295,12 +2296,12 @@ function Generate-HTMLReport {
         $sizeKB = if ($file.Length) { [math]::Round($file.Length / 1KB, 2) } else { "N/A" }
         $html += @"
                         <tr>
-                            <td>$($file.Name)</td>
-                            <td>$($file.Type)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Name))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Type))</td>
                             <td>$sizeKB</td>
-                            <td>$($file.CreationTime)</td>
-                            <td>$($file.LastWriteTime)</td>
-                            <td>$($file.Attributes)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.CreationTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.LastWriteTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Attributes))</td>
                         </tr>
 "@
     }
@@ -2310,8 +2311,8 @@ function Generate-HTMLReport {
                 </div>
 
                 <div id="dir_documents" class="tabcontent">
-                    <h3>Documents Directory ($($Data.DirectoryInfo["UserDocuments"].Path))</h3>
-                    <p>Item Count: $($Data.DirectoryInfo["UserDocuments"].Count) | 
+                    <h3>Documents Directory ($([Net.WebUtility]::HtmlEncode([string]$Data.DirectoryInfo["UserDocuments"].Path)))</h3>
+                    <p>Item Count: $([Net.WebUtility]::HtmlEncode([string]$Data.DirectoryInfo["UserDocuments"].Count)) |
                        Total Size: $([math]::Round($Data.DirectoryInfo["UserDocuments"].SizeTotal / 1MB, 2)) MB</p>
                     <table>
                         <tr>
@@ -2328,12 +2329,12 @@ function Generate-HTMLReport {
         $sizeKB = if ($file.Length) { [math]::Round($file.Length / 1KB, 2) } else { "N/A" }
         $html += @"
                         <tr>
-                            <td>$($file.Name)</td>
-                            <td>$($file.Type)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Name))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Type))</td>
                             <td>$sizeKB</td>
-                            <td>$($file.CreationTime)</td>
-                            <td>$($file.LastWriteTime)</td>
-                            <td>$($file.Attributes)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.CreationTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.LastWriteTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Attributes))</td>
                         </tr>
 "@
     }
@@ -2343,8 +2344,8 @@ function Generate-HTMLReport {
                 </div>
 
                 <div id="dir_downloads" class="tabcontent">
-                    <h3>Downloads Directory ($($Data.DirectoryInfo["UserDownloads"].Path))</h3>
-                    <p>Item Count: $($Data.DirectoryInfo["UserDownloads"].Count) | 
+                    <h3>Downloads Directory ($([Net.WebUtility]::HtmlEncode([string]$Data.DirectoryInfo["UserDownloads"].Path)))</h3>
+                    <p>Item Count: $([Net.WebUtility]::HtmlEncode([string]$Data.DirectoryInfo["UserDownloads"].Count)) |
                        Total Size: $([math]::Round($Data.DirectoryInfo["UserDownloads"].SizeTotal / 1MB, 2)) MB</p>
                     <table>
                         <tr>
@@ -2361,12 +2362,12 @@ function Generate-HTMLReport {
         $sizeKB = if ($file.Length) { [math]::Round($file.Length / 1KB, 2) } else { "N/A" }
         $html += @"
                         <tr>
-                            <td>$($file.Name)</td>
-                            <td>$($file.Type)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Name))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Type))</td>
                             <td>$sizeKB</td>
-                            <td>$($file.CreationTime)</td>
-                            <td>$($file.LastWriteTime)</td>
-                            <td>$($file.Attributes)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.CreationTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.LastWriteTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Attributes))</td>
                         </tr>
 "@
     }
@@ -2376,8 +2377,8 @@ function Generate-HTMLReport {
                 </div>
 
                 <div id="dir_recent" class="tabcontent">
-                    <h3>Recent Files ($($Data.DirectoryInfo["UserRecent"].Path))</h3>
-                    <p>Item Count: $($Data.DirectoryInfo["UserRecent"].Count) | 
+                    <h3>Recent Files ($([Net.WebUtility]::HtmlEncode([string]$Data.DirectoryInfo["UserRecent"].Path)))</h3>
+                    <p>Item Count: $([Net.WebUtility]::HtmlEncode([string]$Data.DirectoryInfo["UserRecent"].Count)) |
                        Total Size: $([math]::Round($Data.DirectoryInfo["UserRecent"].SizeTotal / 1MB, 2)) MB</p>
                     <table>
                         <tr>
@@ -2394,12 +2395,12 @@ function Generate-HTMLReport {
         $sizeKB = if ($file.Length) { [math]::Round($file.Length / 1KB, 2) } else { "N/A" }
         $html += @"
                         <tr>
-                            <td>$($file.Name)</td>
-                            <td>$($file.Type)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Name))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Type))</td>
                             <td>$sizeKB</td>
-                            <td>$($file.CreationTime)</td>
-                            <td>$($file.LastWriteTime)</td>
-                            <td>$($file.Attributes)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.CreationTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.LastWriteTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Attributes))</td>
                         </tr>
 "@
     }
@@ -2409,8 +2410,8 @@ function Generate-HTMLReport {
                 </div>
 
                 <div id="dir_appdata_local" class="tabcontent">
-                    <h3>AppData Local ($($Data.DirectoryInfo["UserAppDataLocal"].Path))</h3>
-                    <p>Item Count: $($Data.DirectoryInfo["UserAppDataLocal"].Count) | 
+                    <h3>AppData Local ($([Net.WebUtility]::HtmlEncode([string]$Data.DirectoryInfo["UserAppDataLocal"].Path)))</h3>
+                    <p>Item Count: $([Net.WebUtility]::HtmlEncode([string]$Data.DirectoryInfo["UserAppDataLocal"].Count)) |
                        Total Size: $([math]::Round($Data.DirectoryInfo["UserAppDataLocal"].SizeTotal / 1MB, 2)) MB</p>
                     <table>
                         <tr>
@@ -2427,12 +2428,12 @@ function Generate-HTMLReport {
         $sizeKB = if ($file.Length) { [math]::Round($file.Length / 1KB, 2) } else { "N/A" }
         $html += @"
                         <tr>
-                            <td>$($file.Name)</td>
-                            <td>$($file.Type)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Name))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Type))</td>
                             <td>$sizeKB</td>
-                            <td>$($file.CreationTime)</td>
-                            <td>$($file.LastWriteTime)</td>
-                            <td>$($file.Attributes)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.CreationTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.LastWriteTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Attributes))</td>
                         </tr>
 "@
     }
@@ -2442,8 +2443,8 @@ function Generate-HTMLReport {
                 </div>
 
                 <div id="dir_appdata_roaming" class="tabcontent">
-                    <h3>AppData Roaming ($($Data.DirectoryInfo["UserAppDataRoaming"].Path))</h3>
-                    <p>Item Count: $($Data.DirectoryInfo["UserAppDataRoaming"].Count) | 
+                    <h3>AppData Roaming ($([Net.WebUtility]::HtmlEncode([string]$Data.DirectoryInfo["UserAppDataRoaming"].Path)))</h3>
+                    <p>Item Count: $([Net.WebUtility]::HtmlEncode([string]$Data.DirectoryInfo["UserAppDataRoaming"].Count)) |
                        Total Size: $([math]::Round($Data.DirectoryInfo["UserAppDataRoaming"].SizeTotal / 1MB, 2)) MB</p>
                     <table>
                         <tr>
@@ -2460,12 +2461,12 @@ function Generate-HTMLReport {
         $sizeKB = if ($file.Length) { [math]::Round($file.Length / 1KB, 2) } else { "N/A" }
         $html += @"
                         <tr>
-                            <td>$($file.Name)</td>
-                            <td>$($file.Type)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Name))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Type))</td>
                             <td>$sizeKB</td>
-                            <td>$($file.CreationTime)</td>
-                            <td>$($file.LastWriteTime)</td>
-                            <td>$($file.Attributes)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.CreationTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.LastWriteTime))</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$file.Attributes))</td>
                         </tr>
 "@
     }
@@ -2473,7 +2474,7 @@ function Generate-HTMLReport {
     $html += @"
                     </table>
                 </div>
-                
+
             </div>
         </div>
 "@
@@ -2490,7 +2491,7 @@ function Generate-HTMLReport {
 
                 <div id="chrome_history" class="tabcontent">
                     <h3>Google Chrome Browsing History</h3>
-                    <p>Entry Count: $($Data.BrowserHistory.Chrome.Count)</p>
+                    <p>Entry Count: $([Net.WebUtility]::HtmlEncode([string]$Data.BrowserHistory.Chrome.Count))</p>
                     <table>
                         <tr>
                             <th>Last Visit Time</th>
@@ -2509,10 +2510,10 @@ function Generate-HTMLReport {
     foreach ($entry in $chromeHistoryEntries) {
         $html += @"
                         <tr>
-                            <td>$($entry.LastVisit)</td>
-                            <td class="title-cell"><div class="title-container">$($entry.Title)</div></td>
-                            <td class="url-cell"><div class="url-container">$($entry.URL)</div></td>
-                            <td>$($entry.VisitCount)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$entry.LastVisit))</td>
+                            <td class="title-cell"><div class="title-container">$([Net.WebUtility]::HtmlEncode([string]$entry.Title))</div></td>
+                            <td class="url-cell"><div class="url-container">$([Net.WebUtility]::HtmlEncode([string]$entry.URL))</div></td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$entry.VisitCount))</td>
                         </tr>
 "@
     }
@@ -2523,7 +2524,7 @@ function Generate-HTMLReport {
 
                 <div id="edge_history" class="tabcontent">
                     <h3>Microsoft Edge Browsing History</h3>
-                    <p>Entry Count: $($Data.BrowserHistory.Edge.Count)</p>
+                    <p>Entry Count: $([Net.WebUtility]::HtmlEncode([string]$Data.BrowserHistory.Edge.Count))</p>
                     <table>
                         <tr>
                             <th>Last Visit Time</th>
@@ -2542,10 +2543,10 @@ function Generate-HTMLReport {
     foreach ($entry in $edgeHistoryEntries) {
         $html += @"
                         <tr>
-                            <td>$($entry.LastVisit)</td>
-                            <td class="title-cell">$($entry.Title)</td>
-                            <td class="url-cell"><div class="url-container">$($entry.URL)</div></td>
-                            <td>$($entry.VisitCount)</td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$entry.LastVisit))</td>
+                            <td class="title-cell">$([Net.WebUtility]::HtmlEncode([string]$entry.Title))</td>
+                            <td class="url-cell"><div class="url-container">$([Net.WebUtility]::HtmlEncode([string]$entry.URL))</div></td>
+                            <td>$([Net.WebUtility]::HtmlEncode([string]$entry.VisitCount))</td>
                         </tr>
 "@
     }
@@ -2562,17 +2563,13 @@ function Generate-HTMLReport {
     </div>
     <script>
         function openTab(evt, tabName) {
-            var i, tabcontent, tablinks;
-            tabcontent = document.getElementsByClassName("tabcontent");
-            for (i = 0; i < tabcontent.length; i++) {
-                tabcontent[i].style.display = "none";
-            }
-            tablinks = document.getElementsByClassName("tablinks");
-            for (i = 0; i < tablinks.length; i++) {
-                tablinks[i].className = tablinks[i].className.replace(" active", "");
-            }
-            document.getElementById(tabName).style.display = "block";
-            evt.currentTarget.className += " active";
+            var section = evt.currentTarget.closest(".section-content");
+            section.querySelectorAll(".tabcontent").forEach(function (panel) {
+                panel.style.display = panel.id === tabName ? "block" : "none";
+            });
+            section.querySelectorAll(".tablinks").forEach(function (button) {
+                button.classList.toggle("active", button === evt.currentTarget);
+            });
         }
 
         // Initialize tabs by clicking the first tab button in each tab group
